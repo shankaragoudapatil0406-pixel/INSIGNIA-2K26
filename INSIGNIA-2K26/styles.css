@@ -5,13 +5,13 @@
 
 /* === CSS Custom Properties === */
 :root {
-    /* Colors */
-    --bg-primary: #0a0a0f;
-    --bg-secondary: #12121a;
-    --bg-card: #16161f;
-    --bg-card-hover: #1c1c28;
-    --bg-elevated: #1e1e2d;
-    --bg-input: #1a1a26;
+    /* Colors - semi-transparent for glassmorphism */
+    --bg-primary: rgba(10, 10, 15, 0.85);
+    --bg-secondary: rgba(18, 18, 26, 0.75);
+    --bg-card: rgba(22, 22, 31, 0.65);
+    --bg-card-hover: rgba(28, 28, 40, 0.7);
+    --bg-elevated: rgba(30, 30, 45, 0.75);
+    --bg-input: rgba(26, 26, 38, 0.7);
 
     --text-primary: #e8e8f0;
     --text-secondary: #a0a0b8;
@@ -30,13 +30,13 @@
     --gradient-pink: linear-gradient(135deg, #FD79A8, #fdcbdd);
     --gradient-gold: linear-gradient(135deg, #FDCB6E, #f9e7a1);
 
-    --border-color: rgba(255, 255, 255, 0.06);
-    --border-color-active: rgba(108, 92, 231, 0.4);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-color-active: rgba(108, 92, 231, 0.45);
 
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.5);
-    --shadow-glow: 0 0 30px rgba(108, 92, 231, 0.15);
+    --shadow-glow: 0 0 30px rgba(108, 92, 231, 0.2);
 
     --sidebar-width: 260px;
     --header-height: 80px;
@@ -52,6 +52,9 @@
     --transition-fast: 150ms ease;
     --transition-normal: 250ms ease;
     --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    --glass-blur: 20px;
+    --glass-border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* === Reset & Base === */
@@ -69,11 +72,33 @@ html {
 
 body {
     font-family: var(--font-sans);
-    background: var(--bg-primary);
+    background: #0a0a0f;
     color: var(--text-primary);
     line-height: 1.6;
     overflow-x: hidden;
     min-height: 100vh;
+}
+
+/* === Spline 3D Background === */
+#spline-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+#spline-bg spline-viewer {
+    width: 100%;
+    height: 100%;
+}
+
+/* Hide Spline watermark */
+#spline-bg spline-viewer::part(logo) {
+    display: none !important;
 }
 
 /* Scrollbar */
@@ -91,11 +116,214 @@ body {
     background: rgba(108, 92, 231, 0.5);
 }
 
+/* === Glassmorphism Utilities === */
+.glass-card {
+    background: var(--bg-card);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-md);
+    transition: all var(--transition-normal);
+}
+
+.glass-card:hover {
+    border-color: var(--border-color-active);
+    box-shadow: var(--shadow-glow);
+}
+
+/* Apply glass effect to all major sections */
+.stats-grid > div,
+.quick-actions-grid > div,
+.readiness-container > div,
+.form-section,
+.resume-section,
+.mock-section,
+.study-section {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+/* Ensure modals have proper glass */
+.modal-overlay {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.modal {
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* === Auth Login Screen === */
+.auth-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(10, 10, 15, 0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    animation: fadeIn 0.4s ease;
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 440px;
+    padding: 1.5rem;
+}
+
+.auth-card {
+    padding: 2.5rem !important;
+    text-align: center;
+}
+
+.auth-logo {
+    margin-bottom: 2rem;
+}
+
+.auth-logo svg {
+    margin-bottom: 1rem;
+    animation: pulse 2s infinite;
+}
+
+.auth-title {
+    font-size: 1.6rem;
+    font-weight: 800;
+    margin-bottom: 0.35rem;
+    letter-spacing: -0.02em;
+}
+
+.auth-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.auth-step {
+    animation: fadeIn 0.3s ease;
+}
+
+.auth-btn {
+    width: 100%;
+    margin-top: 1rem;
+    justify-content: center;
+}
+
+.auth-info {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
+}
+
+/* OTP Boxes */
+.otp-input-group {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+    margin-top: 0.5rem;
+}
+
+.otp-box {
+    width: 48px;
+    height: 56px;
+    text-align: center;
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    background: var(--bg-input);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    outline: none;
+    transition: all var(--transition-normal);
+    caret-color: var(--accent-purple);
+}
+
+.otp-box:focus {
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.15), var(--shadow-glow);
+    background: rgba(108, 92, 231, 0.05);
+}
+
+.otp-box.filled {
+    border-color: var(--accent-green);
+    background: rgba(0, 184, 148, 0.05);
+}
+
+.auth-otp-sent {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+    padding: 0.65rem 1rem;
+    background: rgba(0, 184, 148, 0.08);
+    border: 1px solid rgba(0, 184, 148, 0.2);
+    border-radius: var(--radius-md);
+    margin-bottom: 1.25rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.auth-otp-sent strong {
+    color: var(--accent-green);
+}
+
+.auth-resend {
+    margin-top: 1rem;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+}
+
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--accent-purple-light);
+    font-family: var(--font-sans);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    transition: color var(--transition-fast);
+}
+
+.btn-link:hover {
+    color: var(--accent-blue);
+}
+
+.btn-link:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+}
+
+.auth-back {
+    display: block;
+    margin: 0.75rem auto 0;
+    font-size: 0.8rem;
+}
+
+/* App wrapper when behind auth */
+#app-wrapper {
+    display: none;
+}
+
+#app-wrapper.authenticated {
+    display: block;
+}
+
 /* === Loading Screen === */
 .loading-screen {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: var(--bg-primary);
+    background: rgba(10, 10, 15, 0.92);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -157,7 +385,9 @@ body {
     left: 0; top: 0; bottom: 0;
     width: var(--sidebar-width);
     background: var(--bg-secondary);
-    border-right: 1px solid var(--border-color);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-right: var(--glass-border);
     display: flex;
     flex-direction: column;
     z-index: 100;
@@ -292,39 +522,36 @@ body {
     color: var(--text-muted);
 }
 
+.sidebar-logout-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    margin-top: 0.5rem;
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.15);
+    border-radius: var(--radius-sm);
+    color: var(--accent-red);
+    font-family: var(--font-sans);
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+}
+
+.sidebar-logout-btn:hover {
+    background: rgba(255, 107, 107, 0.15);
+    border-color: rgba(255, 107, 107, 0.3);
+}
+
 /* === Main Content === */
 .main-content {
     margin-left: var(--sidebar-width);
     min-height: 100vh;
     padding: 2rem 2.5rem;
     position: relative;
-}
-
-/* Background orbs */
-.main-content::before {
-    content: '';
-    position: fixed;
-    top: -200px;
-    right: -200px;
-    width: 500px;
-    height: 500px;
-    background: radial-gradient(circle, rgba(108, 92, 231, 0.08) 0%, transparent 70%);
-    border-radius: 50%;
-    pointer-events: none;
-    z-index: 0;
-}
-
-.main-content::after {
-    content: '';
-    position: fixed;
-    bottom: -200px;
-    left: var(--sidebar-width);
-    width: 400px;
-    height: 400px;
-    background: radial-gradient(circle, rgba(0, 210, 255, 0.05) 0%, transparent 70%);
-    border-radius: 50%;
-    pointer-events: none;
-    z-index: 0;
+    z-index: 1;
 }
 
 /* === Pages === */

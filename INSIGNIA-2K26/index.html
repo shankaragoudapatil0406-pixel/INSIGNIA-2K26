@@ -10,8 +10,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
+    <script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.82/build/spline-viewer.js"></script>
 </head>
 <body>
+    <!-- 3D Spline Background -->
+    <div id="spline-bg">
+        <spline-viewer url="https://prod.spline.design/j7CIICCzMyCXaJCD/scene.splinecode" loading-anim-type="none" events-target="none"></spline-viewer>
+    </div>
+
     <!-- Loading Screen -->
     <div id="loading-screen" class="loading-screen">
         <div class="loader-content">
@@ -33,7 +39,72 @@
         </div>
     </div>
 
-    <!-- Sidebar Navigation -->
+    <!-- ==================== AUTH LOGIN SCREEN ==================== -->
+    <div id="auth-screen" class="auth-screen" style="display:none">
+        <div class="auth-container">
+            <div class="auth-card glass-card">
+                <div class="auth-logo">
+                    <svg width="50" height="50" viewBox="0 0 60 60" fill="none">
+                        <defs>
+                            <linearGradient id="authGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#6C5CE7"/>
+                                <stop offset="100%" style="stop-color:#00D2FF"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="M30 5L52 17.5V42.5L30 55L8 42.5V17.5L30 5Z" stroke="url(#authGrad)" stroke-width="2.5" fill="none"/>
+                        <path d="M30 15L42 22V36L30 43L18 36V22L30 15Z" fill="url(#authGrad)" opacity="0.3"/>
+                        <circle cx="30" cy="30" r="6" fill="url(#authGrad)"/>
+                    </svg>
+                    <h1 class="auth-title">Welcome to <span class="gradient-text">Insignia</span></h1>
+                    <p class="auth-subtitle">Sign in with your email to continue</p>
+                </div>
+
+                <!-- Step 1: Email Input -->
+                <div id="auth-step-email" class="auth-step">
+                    <div class="form-group">
+                        <label for="auth-email">Email Address</label>
+                        <input type="email" id="auth-email" placeholder="your.email@example.com" autocomplete="email">
+                    </div>
+                    <button class="btn btn-primary btn-lg auth-btn" id="auth-send-otp" onclick="sendOTP()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Send OTP Code
+                    </button>
+                    <p class="auth-info">We'll send a 6-digit code to your email</p>
+                </div>
+
+                <!-- Step 2: OTP Verification -->
+                <div id="auth-step-otp" class="auth-step" style="display:none">
+                    <div class="auth-otp-sent">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        <span>OTP sent to <strong id="auth-sent-email"></strong></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="auth-otp">Enter 6-digit OTP</label>
+                        <div class="otp-input-group">
+                            <input type="text" id="otp-1" class="otp-box" maxlength="1" inputmode="numeric" autocomplete="one-time-code">
+                            <input type="text" id="otp-2" class="otp-box" maxlength="1" inputmode="numeric">
+                            <input type="text" id="otp-3" class="otp-box" maxlength="1" inputmode="numeric">
+                            <input type="text" id="otp-4" class="otp-box" maxlength="1" inputmode="numeric">
+                            <input type="text" id="otp-5" class="otp-box" maxlength="1" inputmode="numeric">
+                            <input type="text" id="otp-6" class="otp-box" maxlength="1" inputmode="numeric">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-lg auth-btn" id="auth-verify-btn" onclick="verifyOTP()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        Verify & Sign In
+                    </button>
+                    <div class="auth-resend">
+                        <span>Didn't receive the code?</span>
+                        <button class="btn-link" id="auth-resend-btn" onclick="resendOTP()">Resend OTP</button>
+                    </div>
+                    <button class="btn-link auth-back" onclick="backToEmail()">← Change email</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== APP (hidden until auth) ==================== -->
+    <div id="app-wrapper">
     <nav id="sidebar" class="sidebar">
         <div class="sidebar-header">
             <div class="logo">
@@ -111,6 +182,10 @@
                     <span class="user-role" id="display-user-role">Set up profile →</span>
                 </div>
             </div>
+            <button class="sidebar-logout-btn" onclick="logoutUser()" title="Sign Out">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Sign Out
+            </button>
         </div>
     </nav>
 
@@ -907,6 +982,8 @@
 
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
+
+    </div><!-- /app-wrapper -->
 
     <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script src="app.js"></script>

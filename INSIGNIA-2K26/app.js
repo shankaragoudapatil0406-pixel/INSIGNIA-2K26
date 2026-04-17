@@ -14,14 +14,19 @@ const AppState = {
 };
 
 // ==================== INIT ====================
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
+    // Check auth state
+    await checkAuthState();
+
     setTimeout(() => {
         document.getElementById('loading-screen').classList.add('fade-out');
     }, 2000);
+
     setupNavigation();
     loadProfile();
     updateStats();
     updateReadiness();
+    setupOTPInputs();
 });
 
 // ==================== NAVIGATION ====================
@@ -650,6 +655,282 @@ try {
 } catch (e) {
     console.warn('Supabase SDK not loaded, Skill Connect will work in offline mode.');
 }
+
+// ==================== AUTH (Email OTP) ====================
+let authEmail = '';
+
+async function checkAuthState() {
+    if (!supabase) {
+        // No Supabase — skip auth, show app directly
+        showApp();
+        return;
+    }
+
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+            authEmail = session.user.email;
+            showApp();
+            updateUserDisplay(session.user.email);
+        } else {
+            showAuthScreen();
+        }
+
+        // Listen for auth state changes
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' && session) {
+                authEmail = session.user.email;
+                showApp();
+                updateUserDisplay(session.user.email);
+            } else if (event === 'SIGNED_OUT') {
+                showAuthScreen();
+            }
+        });
+    } catch (err) {
+        console.error('Auth check error:', err);
+        showApp(); // Fallback to showing app
+    }
+}
+
+function showApp() {
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app-wrapper').classList.add('authenticated');
+    document.getElementById('app-wrapper').style.display = '';
+}
+
+function showAuthScreen() {
+    document.getElementById('auth-screen').style.display = 'flex';
+    document.getElementById('app-wrapper').classList.remove('authenticated');
+    document.getElementById('app-wrapper').style.display = 'none';
+}
+
+function updateUserDisplay(email) {
+    const nameEl = document.getElementById('display-user-name');
+    const roleEl = document.getElementById('display-user-role');
+    if (nameEl) nameEl.textContent = email.split('@')[0];
+    if (roleEl) roleEl.textContent = email;
+}
+
+async function sendOTP() {
+    const emailInput = document.getElementById('auth-email');
+    const email = emailInput.value.trim();
+
+    if (!email) {
+        showToast('Please enter your email address', 'error');
+        return;
+    }
+    if (!email.includes('@')) {
+        showToast('Please enter a valid email address', 'error');
+        return;
+    }
+
+    authEmail = email;
+    const btn = document.getElementById('auth-send-otp');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Sending...`;
+
+    try {
+        const { error } = await supabase.auth.signInWithOtp({
+            email: email,
+            options: {
+                shouldCreateUser: true,
+            }
+        });
+
+        if (error) {
+            showToast('Error: ' + error.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            return;
+        }
+
+        // Switch to OTP step
+        document.getElementById('auth-step-email').style.display = 'none';
+        document.getElementById('auth-step-otp').style.display = 'block';
+        document.getElementById('auth-sent-email').textContent = email;
+
+        // Focus first OTP box
+        setTimeout(() => document.getElementById('otp-1').focus(), 100);
+
+        showToast('OTP sent! Check your email inbox', 'success');
+
+    } catch (err) {
+        console.error('OTP error:', err);
+        showToast('Network error. Please try again.', 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+}
+
+async function verifyOTP() {
+    // Collect all 6 digits
+    const otp = [1,2,3,4,5,6].map(i => document.getElementById(`otp-${i}`).value).join('');
+
+    if (otp.length !== 6) {
+        showToast('Please enter the complete 6-digit code', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('auth-verify-btn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Verifying...`;
+
+    try {
+        const { data, error } = await supabase.auth.verifyOtp({
+            email: authEmail,
+            token: otp,
+            type: 'email',
+        });
+
+        if (error) {
+            showToast('Invalid OTP: ' + error.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            // Clear OTP boxes
+            [1,2,3,4,5,6].forEach(i => {
+                const box = document.getElementById(`otp-${i}`);
+                box.value = '';
+                box.classList.remove('filled');
+            });
+            document.getElementById('otp-1').focus();
+            return;
+        }
+
+        showToast('Welcome to Insignia! 🎉', 'success');
+        // Auth state change listener will handle the rest
+
+    } catch (err) {
+        console.error('Verify error:', err);
+        showToast('Network error. Please try again.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function resendOTP() {
+    const btn = document.getElementById('auth-resend-btn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    try {
+        const { error } = await supabase.auth.signInWithOtp({
+            email: authEmail,
+            options: { shouldCreateUser: true }
+        });
+
+        if (error) {
+            showToast('Error: ' + error.message, 'error');
+        } else {
+            showToast('New OTP sent to ' + authEmail, 'success');
+        }
+    } catch (err) {
+        showToast('Network error', 'error');
+    }
+
+    // Cooldown
+    let cooldown = 30;
+    btn.textContent = `Resend in ${cooldown}s`;
+    const timer = setInterval(() => {
+        cooldown--;
+        btn.textContent = `Resend in ${cooldown}s`;
+        if (cooldown <= 0) {
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.textContent = 'Resend OTP';
+        }
+    }, 1000);
+}
+
+function backToEmail() {
+    document.getElementById('auth-step-email').style.display = 'block';
+    document.getElementById('auth-step-otp').style.display = 'none';
+    // Clear OTP boxes
+    [1,2,3,4,5,6].forEach(i => {
+        const box = document.getElementById(`otp-${i}`);
+        box.value = '';
+        box.classList.remove('filled');
+    });
+}
+
+async function logoutUser() {
+    if (!supabase) return;
+
+    try {
+        await supabase.auth.signOut();
+        authEmail = '';
+        localStorage.removeItem('sc_profile');
+        showToast('Signed out successfully', 'info');
+    } catch (err) {
+        console.error('Logout error:', err);
+    }
+}
+
+function setupOTPInputs() {
+    const boxes = [1,2,3,4,5,6].map(i => document.getElementById(`otp-${i}`));
+    if (!boxes[0]) return;
+
+    boxes.forEach((box, idx) => {
+        // Only allow digits
+        box.addEventListener('input', (e) => {
+            const val = e.target.value.replace(/[^0-9]/g, '');
+            e.target.value = val;
+            if (val) {
+                e.target.classList.add('filled');
+                // Auto-advance to next box
+                if (idx < 5) boxes[idx + 1].focus();
+            } else {
+                e.target.classList.remove('filled');
+            }
+
+            // Auto-submit when all filled
+            if (boxes.every(b => b.value.length === 1)) {
+                setTimeout(() => verifyOTP(), 300);
+            }
+        });
+
+        // Handle backspace
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !box.value && idx > 0) {
+                boxes[idx - 1].focus();
+                boxes[idx - 1].value = '';
+                boxes[idx - 1].classList.remove('filled');
+            }
+        });
+
+        // Handle paste (full OTP paste)
+        box.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, 6);
+            if (pasted.length >= 6) {
+                pasted.split('').forEach((digit, i) => {
+                    if (boxes[i]) {
+                        boxes[i].value = digit;
+                        boxes[i].classList.add('filled');
+                    }
+                });
+                boxes[5].focus();
+                setTimeout(() => verifyOTP(), 300);
+            }
+        });
+
+        // Allow Enter to submit
+        box.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') verifyOTP();
+        });
+    });
+
+    // Also allow Enter on email input
+    const emailInput = document.getElementById('auth-email');
+    if (emailInput) {
+        emailInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendOTP();
+        });
+    }
+}
+
 
 // ==================== SKILL CONNECT ====================
 const SKILL_SUGGESTIONS = [
