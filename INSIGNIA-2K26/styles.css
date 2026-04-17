@@ -1092,73 +1092,14 @@ body {
     background: #ffffff;
     color: #1a1a2e;
     border-radius: var(--radius-md);
-    padding: 2rem;
+    padding: 0;
     font-size: 0.8rem;
     line-height: 1.6;
     min-height: 400px;
-    max-height: calc(100vh - 350px);
+    max-height: calc(100vh - 300px);
     overflow-y: auto;
     box-shadow: var(--shadow-lg);
-}
-
-.resume-preview h1 {
-    font-size: 1.5rem;
-    color: #1a1a2e;
-    margin-bottom: 0.25rem;
-    border: none;
-}
-
-.resume-preview h2 {
-    font-size: 0.95rem;
-    color: #6C5CE7;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    border-bottom: 2px solid #6C5CE7;
-    padding-bottom: 0.3rem;
-    margin: 1rem 0 0.5rem;
-}
-
-.resume-preview h3 {
-    font-size: 0.85rem;
-    color: #333;
-    margin-bottom: 0.15rem;
-}
-
-.resume-preview p {
-    color: #555;
-    margin-bottom: 0.35rem;
-}
-
-.resume-preview .contact-info {
-    color: #666;
-    font-size: 0.75rem;
-    margin-bottom: 0.75rem;
-}
-
-.resume-preview ul {
-    padding-left: 1.25rem;
-    color: #555;
-}
-
-.resume-preview ul li {
-    margin-bottom: 0.2rem;
-}
-
-.resume-preview .skills-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    list-style: none;
-    padding: 0;
-}
-
-.resume-preview .skills-list li {
-    background: #f0ecff;
-    color: #6C5CE7;
-    padding: 0.2rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.72rem;
-    font-weight: 500;
+    overflow-x: hidden;
 }
 
 /* AI Suggestions */

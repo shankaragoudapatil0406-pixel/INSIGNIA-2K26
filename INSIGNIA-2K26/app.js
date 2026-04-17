@@ -194,41 +194,292 @@ function generateResume(e) {
 function renderResume(d) {
     const enhancedSummary = d.summary || generateSummary(d);
     const skillsArr = d.skills.split(',').map(s => s.trim()).filter(Boolean);
+
     const expBullets = (desc) => {
         if (!desc) return '';
-        return desc.split('\n').filter(Boolean).map(l => {
-            l = l.replace(/^[-•]\s*/, '');
-            if (!/^\d/.test(l) && !/ed |ing |ized /.test(l)) l = 'Spearheaded ' + l.charAt(0).toLowerCase() + l.slice(1);
+        const lines = desc.split('\n').filter(l => l.trim());
+        return lines.map(l => {
+            l = l.replace(/^[-•*]\s*/, '').trim();
+            const actionVerbs = ['Developed','Built','Designed','Implemented','Led','Managed','Optimized','Created','Launched','Delivered','Architected','Improved','Reduced','Increased','Spearheaded','Coordinated','Collaborated','Produced','Facilitated','Trained'];
+            const hasVerb = actionVerbs.some(v => l.startsWith(v));
+            if (!hasVerb && l.length > 3) l = 'Developed ' + l.charAt(0).toLowerCase() + l.slice(1);
             return `<li>${l}</li>`;
         }).join('');
     };
 
-    let html = `<h1>${d.name}</h1><div class="contact-info">${[d.email, d.phone, d.location, d.linkedin, d.portfolio].filter(Boolean).join(' | ')}</div>`;
-    html += `<h2>Professional Summary</h2><p>${enhancedSummary}</p>`;
-
-    if (d.education.length) {
-        html += '<h2>Education</h2>';
-        d.education.forEach(e => { html += `<h3>${e.degree} — ${e.institution}</h3><p>${[e.year, e.gpa ? 'GPA: ' + e.gpa : ''].filter(Boolean).join(' | ')}</p>`; });
+    // Build Key Achievements from experience descriptions
+    const achievements = [];
+    d.experience.forEach(ex => {
+        if (ex.desc) {
+            const lines = ex.desc.split('\n').filter(l => l.trim()).slice(0, 1);
+            lines.forEach(l => {
+                l = l.replace(/^[-•*]\s*/, '').trim();
+                if (l) achievements.push({ title: ex.title + ' Achievement', desc: l, company: ex.company });
+            });
+        }
+    });
+    if (d.projects.length > 0) {
+        d.projects.forEach(p => { if (p.desc) achievements.push({ title: p.name, desc: p.desc, company: p.tech }); });
+    }
+    if (achievements.length === 0) {
+        achievements.push({ title: 'Goal-Oriented Professional', desc: 'Dedicated to delivering high-quality results and continuously improving performance metrics in a dynamic environment.', company: '' });
+        achievements.push({ title: 'Continuous Learner', desc: 'Committed to staying current with industry trends and expanding technical expertise to drive innovative solutions.', company: '' });
     }
 
+    // Contacts row
+    const contactItems = [];
+    if (d.email) contactItems.push(`<span class="cv-contact-item"><span class="cv-contact-icon">✉</span>${d.email}</span>`);
+    if (d.linkedin) contactItems.push(`<span class="cv-contact-item"><span class="cv-contact-icon">🔗</span>${d.linkedin}</span>`);
+    if (d.portfolio) contactItems.push(`<span class="cv-contact-item"><span class="cv-contact-icon">💼</span>${d.portfolio}</span>`);
+    if (d.location) contactItems.push(`<span class="cv-contact-item"><span class="cv-contact-icon">📍</span>${d.location}</span>`);
+    if (d.phone) contactItems.push(`<span class="cv-contact-item"><span class="cv-contact-icon">📞</span>${d.phone}</span>`);
+
+    // LEFT: Experience
+    let expHtml = '';
     if (d.experience.length) {
-        html += '<h2>Professional Experience</h2>';
-        d.experience.forEach(ex => { html += `<h3>${ex.title} — ${ex.company}</h3><p>${ex.duration}</p><ul>${expBullets(ex.desc)}</ul>`; });
+        d.experience.forEach(ex => {
+            expHtml += `
+            <div class="cv-exp-entry">
+                <div class="cv-exp-title">${ex.title}</div>
+                <div class="cv-exp-company">${ex.company}</div>
+                <div class="cv-exp-meta">${ex.duration ? `<span class="cv-exp-icon">📅</span>${ex.duration}` : ''}${d.location ? ` &nbsp;📍 ${d.location}` : ''}</div>
+                <ul class="cv-exp-bullets">${expBullets(ex.desc)}</ul>
+            </div>`;
+        });
     }
 
+    // LEFT: Projects (treated as extra experience)
+    let projHtml = '';
     if (d.projects.length) {
-        html += '<h2>Projects</h2>';
-        d.projects.forEach(p => { html += `<h3>${p.name} <span style="font-weight:400;color:#888;font-size:0.8em">[${p.tech}]</span></h3><p>${p.desc}</p>`; });
+        d.projects.forEach(p => {
+            projHtml += `
+            <div class="cv-exp-entry">
+                <div class="cv-exp-title">${p.name}</div>
+                <div class="cv-exp-company" style="color:#2ecc71">${p.tech}</div>
+                <p class="cv-proj-desc">${p.desc}</p>
+            </div>`;
+        });
     }
 
-    if (skillsArr.length) {
-        html += '<h2>Technical Skills</h2><ul class="skills-list">';
-        skillsArr.forEach(s => { html += `<li>${s}</li>`; });
-        html += '</ul>';
+    // RIGHT: Education
+    let eduHtml = '';
+    if (d.education.length) {
+        d.education.forEach(e => {
+            eduHtml += `
+            <div class="cv-edu-entry">
+                <div class="cv-edu-degree">${e.degree}</div>
+                <div class="cv-edu-institution">${e.institution}</div>
+                <div class="cv-edu-meta">${e.year ? `<span>📅</span> ${e.year}` : ''}${e.gpa ? ` &nbsp; GPA: ${e.gpa}` : ''}</div>
+            </div>`;
+        });
     }
+
+    // Language bar generator
+    const langBar = (level) => {
+        const levels = { native: 5, fluent: 4, advanced: 4, intermediate: 3, beginner: 2 };
+        const filled = levels[level.toLowerCase()] || 3;
+        let bars = '';
+        for (let i = 0; i < 5; i++) bars += `<span class="cv-lang-bar ${i < filled ? 'filled' : ''}"></span>`;
+        return bars;
+    };
+
+    const html = `
+    <div class="cv-wrapper">
+        <!-- HEADER -->
+        <div class="cv-header">
+            <div class="cv-header-bg-deco"></div>
+            <div class="cv-name">${d.name || 'Your Name'}</div>
+            <div class="cv-role">${d.targetRole || 'Professional Title'}</div>
+            <div class="cv-contacts">${contactItems.join('')}</div>
+        </div>
+
+        <!-- BODY: Two Columns -->
+        <div class="cv-body">
+
+            <!-- LEFT COLUMN -->
+            <div class="cv-left">
+
+                <!-- SUMMARY -->
+                <div class="cv-section">
+                    <div class="cv-section-title">SUMMARY</div>
+                    <div class="cv-section-line"></div>
+                    <p class="cv-summary-text">${enhancedSummary}</p>
+                </div>
+
+                <!-- EXPERIENCE -->
+                ${d.experience.length ? `
+                <div class="cv-section">
+                    <div class="cv-section-title">EXPERIENCE</div>
+                    <div class="cv-section-line"></div>
+                    ${expHtml}
+                </div>` : ''}
+
+                <!-- PROJECTS -->
+                ${d.projects.length ? `
+                <div class="cv-section">
+                    <div class="cv-section-title">PROJECTS</div>
+                    <div class="cv-section-line"></div>
+                    ${projHtml}
+                </div>` : ''}
+
+                <!-- LANGUAGES -->
+                <div class="cv-section">
+                    <div class="cv-section-title">LANGUAGES</div>
+                    <div class="cv-section-line"></div>
+                    <div class="cv-languages">
+                        <div class="cv-lang-item">
+                            <div><div class="cv-lang-name">English</div><div class="cv-lang-level">Native</div></div>
+                            <div class="cv-lang-bars">${langBar('native')}</div>
+                        </div>
+                        <div class="cv-lang-item">
+                            <div><div class="cv-lang-name">Professional</div><div class="cv-lang-level">Advanced</div></div>
+                            <div class="cv-lang-bars">${langBar('advanced')}</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- end cv-left -->
+
+            <!-- RIGHT COLUMN -->
+            <div class="cv-right">
+
+                <!-- KEY ACHIEVEMENTS -->
+                <div class="cv-section">
+                    <div class="cv-section-title">KEY ACHIEVEMENTS</div>
+                    <div class="cv-section-line"></div>
+                    ${achievements.slice(0, 4).map(a => `
+                    <div class="cv-achievement">
+                        <div class="cv-achievement-title">${a.title}</div>
+                        <div class="cv-achievement-desc">${a.desc}</div>
+                    </div>`).join('')}
+                </div>
+
+                <!-- SKILLS -->
+                ${skillsArr.length ? `
+                <div class="cv-section">
+                    <div class="cv-section-title">SKILLS</div>
+                    <div class="cv-section-line"></div>
+                    <p class="cv-skills-text">${skillsArr.join(', ')}</p>
+                </div>` : ''}
+
+                <!-- EDUCATION -->
+                ${d.education.length ? `
+                <div class="cv-section">
+                    <div class="cv-section-title">EDUCATION</div>
+                    <div class="cv-section-line"></div>
+                    ${eduHtml}
+                </div>` : ''}
+
+                <!-- TRAINING / COURSES -->
+                <div class="cv-section">
+                    <div class="cv-section-title">TRAINING / COURSES</div>
+                    <div class="cv-section-line"></div>
+                    <div class="cv-training-item">
+                        <div class="cv-training-title">${d.targetRole} Fundamentals</div>
+                        <div class="cv-training-desc">Industry-standard certification covering core principles and advanced techniques for ${d.targetRole} professionals.</div>
+                    </div>
+                    <div class="cv-training-item">
+                        <div class="cv-training-title">Professional Development</div>
+                        <div class="cv-training-desc">Continuous learning through online platforms and industry workshops to stay current with evolving technologies.</div>
+                    </div>
+                </div>
+
+                <!-- INTERESTS -->
+                <div class="cv-section">
+                    <div class="cv-section-title">INTERESTS</div>
+                    <div class="cv-section-line"></div>
+                    <div class="cv-interest-item">
+                        <div class="cv-interest-title">Technology Innovation</div>
+                        <div class="cv-interest-desc">Passionate about emerging technologies and their potential to solve real-world problems at scale.</div>
+                    </div>
+                    <div class="cv-interest-item">
+                        <div class="cv-interest-title">Continuous Learning</div>
+                        <div class="cv-interest-desc">Committed to lifelong growth through courses, open-source contributions, and community engagement.</div>
+                    </div>
+                </div>
+
+            </div><!-- end cv-right -->
+        </div><!-- end cv-body -->
+
+        <!-- FOOTER -->
+        <div class="cv-footer">
+            <span>Generated by Insignia AI</span>
+        </div>
+    </div>`;
 
     document.getElementById('resume-preview').innerHTML = html;
+    injectCVStyles();
     generateSuggestions(d);
+}
+
+function injectCVStyles() {
+    if (document.getElementById('cv-injected-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'cv-injected-styles';
+    style.textContent = `
+        #resume-preview { background: #fff; border-radius: 0; padding: 0; font-family: 'Georgia', 'Times New Roman', serif; color: #1a1a2e; }
+        .cv-wrapper { max-width: 780px; margin: 0 auto; background: #fff; }
+        /* HEADER */
+        .cv-header { padding: 28px 32px 20px; background: #fff; position: relative; overflow: hidden; border-bottom: 1px solid #e8e8e8; }
+        .cv-header-bg-deco { position: absolute; top: -40px; right: -40px; width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(108,92,231,0.06) 0%, transparent 70%); pointer-events: none; }
+        .cv-name { font-size: 2.1rem; font-weight: 900; letter-spacing: -0.02em; color: #0d0d1a; font-family: 'Arial Black', 'Inter', sans-serif; text-transform: uppercase; line-height: 1.1; }
+        .cv-role { font-size: 0.88rem; font-weight: 600; color: #2980b9; margin-top: 4px; letter-spacing: 0.01em; font-family: 'Inter', Arial, sans-serif; }
+        .cv-contacts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+        .cv-contact-item { font-size: 0.74rem; color: #555; display: flex; align-items: center; gap: 4px; font-family: 'Inter', Arial, sans-serif; }
+        .cv-contact-icon { font-size: 0.72rem; }
+        /* BODY */
+        .cv-body { display: grid; grid-template-columns: 1fr 0.72fr; gap: 0; }
+        /* COLUMNS */
+        .cv-left { padding: 20px 28px 24px 32px; border-right: 1px solid #ebebeb; }
+        .cv-right { padding: 20px 28px 24px 24px; background: #fafafa; }
+        /* SECTION */
+        .cv-section { margin-bottom: 18px; }
+        .cv-section-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; color: #0d0d1a; font-family: 'Inter', Arial, sans-serif; text-transform: uppercase; }
+        .cv-section-line { height: 2px; background: #1a1a2e; margin: 4px 0 10px; }
+        /* SUMMARY */
+        .cv-summary-text { font-size: 0.78rem; color: #444; line-height: 1.6; margin: 0; }
+        /* EXPERIENCE */
+        .cv-exp-entry { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed #ddd; }
+        .cv-exp-entry:last-child { border-bottom: none; }
+        .cv-exp-title { font-size: 0.84rem; font-weight: 700; color: #0d0d1a; font-family: 'Inter', Arial, sans-serif; }
+        .cv-exp-company { font-size: 0.78rem; font-weight: 600; color: #2980b9; margin: 2px 0; }
+        .cv-exp-meta { font-size: 0.7rem; color: #888; margin-bottom: 6px; display: flex; gap: 4px; align-items: center; font-family: 'Inter', Arial, sans-serif; }
+        .cv-exp-icon { font-size: 0.68rem; }
+        .cv-exp-bullets { padding-left: 16px; margin: 0; }
+        .cv-exp-bullets li { font-size: 0.75rem; color: #555; line-height: 1.55; margin-bottom: 3px; }
+        .cv-proj-desc { font-size: 0.75rem; color: #555; margin: 6px 0 0; line-height: 1.55; }
+        /* LANGUAGES */
+        .cv-languages { display: flex; flex-direction: column; gap: 10px; }
+        .cv-lang-item { display: flex; justify-content: space-between; align-items: center; }
+        .cv-lang-name { font-size: 0.78rem; font-weight: 700; color: #1a1a2e; font-family: 'Inter', Arial, sans-serif; }
+        .cv-lang-level { font-size: 0.68rem; color: #888; }
+        .cv-lang-bars { display: flex; gap: 3px; }
+        .cv-lang-bar { width: 18px; height: 14px; border-radius: 2px; background: #e0e0e0; }
+        .cv-lang-bar.filled { background: #2980b9; }
+        /* KEY ACHIEVEMENTS */
+        .cv-achievement { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #ddd; }
+        .cv-achievement:last-child { border-bottom: none; }
+        .cv-achievement-title { font-size: 0.76rem; font-weight: 700; color: #0d0d1a; font-family: 'Inter', Arial, sans-serif; margin-bottom: 2px; }
+        .cv-achievement-desc { font-size: 0.72rem; color: #555; line-height: 1.5; }
+        /* SKILLS */
+        .cv-skills-text { font-size: 0.74rem; color: #444; line-height: 1.7; margin: 0; }
+        /* EDUCATION */
+        .cv-edu-entry { margin-bottom: 10px; }
+        .cv-edu-degree { font-size: 0.8rem; font-weight: 700; color: #0d0d1a; font-family: 'Inter', Arial, sans-serif; }
+        .cv-edu-institution { font-size: 0.75rem; font-weight: 600; color: #2980b9; }
+        .cv-edu-meta { font-size: 0.68rem; color: #888; margin-top: 2px; }
+        /* TRAINING */
+        .cv-training-item { margin-bottom: 9px; }
+        .cv-training-title { font-size: 0.76rem; font-weight: 700; color: #2980b9; font-family: 'Inter', Arial, sans-serif; }
+        .cv-training-desc { font-size: 0.71rem; color: #555; line-height: 1.5; margin-top: 2px; }
+        /* INTERESTS */
+        .cv-interest-item { margin-bottom: 9px; }
+        .cv-interest-title { font-size: 0.76rem; font-weight: 700; color: #0d0d1a; font-family: 'Inter', Arial, sans-serif; }
+        .cv-interest-desc { font-size: 0.71rem; color: #555; line-height: 1.5; margin-top: 2px; }
+        /* FOOTER */
+        .cv-footer { text-align: right; padding: 8px 28px; font-size: 0.65rem; color: #bbb; border-top: 1px solid #eee; font-family: 'Inter', Arial, sans-serif; }
+    `;
+    document.head.appendChild(style);
 }
 
 function generateSummary(d) {
@@ -251,9 +502,54 @@ function generateSuggestions(d) {
     list.innerHTML = suggestions.map(s => `<li>${s}</li>`).join('');
 }
 
+function getResumeCSS() {
+    return `
+        body { font-family: Georgia, 'Times New Roman', serif; margin: 0; padding: 0; background: #fff; color: #1a1a2e; }
+        .cv-wrapper { max-width: 780px; margin: 0 auto; background: #fff; }
+        .cv-header { padding: 28px 32px 20px; background: #fff; border-bottom: 1px solid #e8e8e8; }
+        .cv-name { font-size: 2.1rem; font-weight: 900; letter-spacing: -0.02em; color: #0d0d1a; font-family: Arial Black, sans-serif; text-transform: uppercase; }
+        .cv-role { font-size: 0.88rem; font-weight: 600; color: #2980b9; margin-top: 4px; }
+        .cv-contacts { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+        .cv-contact-item { font-size: 0.74rem; color: #555; display: flex; align-items: center; gap: 4px; }
+        .cv-body { display: grid; grid-template-columns: 1fr 0.72fr; }
+        .cv-left { padding: 20px 28px 24px 32px; border-right: 1px solid #ebebeb; }
+        .cv-right { padding: 20px 28px 24px 24px; background: #fafafa; }
+        .cv-section { margin-bottom: 18px; }
+        .cv-section-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.1em; color: #0d0d1a; text-transform: uppercase; }
+        .cv-section-line { height: 2px; background: #1a1a2e; margin: 4px 0 10px; }
+        .cv-summary-text { font-size: 0.78rem; color: #444; line-height: 1.6; margin: 0; }
+        .cv-exp-entry { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed #ddd; }
+        .cv-exp-title { font-size: 0.84rem; font-weight: 700; color: #0d0d1a; }
+        .cv-exp-company { font-size: 0.78rem; font-weight: 600; color: #2980b9; margin: 2px 0; }
+        .cv-exp-meta { font-size: 0.7rem; color: #888; margin-bottom: 6px; }
+        .cv-exp-bullets { padding-left: 16px; margin: 0; }
+        .cv-exp-bullets li { font-size: 0.75rem; color: #555; line-height: 1.55; margin-bottom: 3px; }
+        .cv-proj-desc { font-size: 0.75rem; color: #555; margin: 6px 0 0; line-height: 1.55; }
+        .cv-languages { display: flex; flex-direction: column; gap: 10px; }
+        .cv-lang-item { display: flex; justify-content: space-between; align-items: center; }
+        .cv-lang-name { font-size: 0.78rem; font-weight: 700; }
+        .cv-lang-level { font-size: 0.68rem; color: #888; }
+        .cv-lang-bars { display: flex; gap: 3px; }
+        .cv-lang-bar { width: 18px; height: 14px; border-radius: 2px; background: #e0e0e0; }
+        .cv-lang-bar.filled { background: #2980b9; }
+        .cv-achievement { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #ddd; }
+        .cv-achievement-title { font-size: 0.76rem; font-weight: 700; margin-bottom: 2px; }
+        .cv-achievement-desc { font-size: 0.72rem; color: #555; line-height: 1.5; }
+        .cv-skills-text { font-size: 0.74rem; color: #444; line-height: 1.7; margin: 0; }
+        .cv-edu-degree { font-size: 0.8rem; font-weight: 700; }
+        .cv-edu-institution { font-size: 0.75rem; font-weight: 600; color: #2980b9; }
+        .cv-edu-meta { font-size: 0.68rem; color: #888; margin-top: 2px; }
+        .cv-training-title { font-size: 0.76rem; font-weight: 700; color: #2980b9; }
+        .cv-training-desc { font-size: 0.71rem; color: #555; line-height: 1.5; margin-top: 2px; }
+        .cv-interest-title { font-size: 0.76rem; font-weight: 700; }
+        .cv-interest-desc { font-size: 0.71rem; color: #555; line-height: 1.5; margin-top: 2px; }
+        .cv-footer { text-align: right; padding: 8px 28px; font-size: 0.65rem; color: #bbb; border-top: 1px solid #eee; }
+    `;
+}
+
 function downloadResume() {
     const content = document.getElementById('resume-preview').innerHTML;
-    const blob = new Blob([`<html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:2rem;max-width:800px;margin:0 auto;color:#1a1a2e}h1{font-size:1.5rem;margin-bottom:0.25rem}h2{font-size:0.95rem;color:#6C5CE7;text-transform:uppercase;letter-spacing:0.08em;border-bottom:2px solid #6C5CE7;padding-bottom:0.3rem;margin:1rem 0 0.5rem}h3{font-size:0.85rem;color:#333}p{color:#555;margin-bottom:0.35rem;font-size:0.82rem}.contact-info{color:#666;font-size:0.75rem;margin-bottom:0.75rem}ul{padding-left:1.25rem;color:#555;font-size:0.82rem}.skills-list{display:flex;flex-wrap:wrap;gap:0.35rem;list-style:none;padding:0}.skills-list li{background:#f0ecff;color:#6C5CE7;padding:0.2rem 0.6rem;border-radius:4px;font-size:0.72rem}</style></head><body>${content}</body></html>`], { type: 'text/html' });
+    const blob = new Blob([`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Resume</title><style>${getResumeCSS()}</style></head><body>${content}</body></html>`], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'resume.html'; a.click();
