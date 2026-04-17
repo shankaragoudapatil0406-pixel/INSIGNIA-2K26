@@ -640,3 +640,509 @@ function resetMockInterview() {
 
 // Profile button click
 document.getElementById('user-profile-btn')?.addEventListener('click', showProfileModal);
+
+// ==================== SUPABASE CONFIG ====================
+const SUPABASE_URL = 'https://qzhodtpzajupwgoghmcw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6aG9kdHB6YWp1cHdnb2dobWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDQ4NzksImV4cCI6MjA5MjAyMDg3OX0.av43zZ-nAZg4FOnHfXNRK_LKL-CAeUZR-ewgdn3VbsI';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ==================== SKILL CONNECT ====================
+const SKILL_SUGGESTIONS = [
+    'Python', 'JavaScript', 'Java', 'C++', 'TypeScript', 'React', 'Angular', 'Vue.js',
+    'Node.js', 'Django', 'Flask', 'Spring Boot', 'Express.js', 'Next.js', 'HTML/CSS',
+    'SQL', 'MongoDB', 'PostgreSQL', 'Firebase', 'Supabase',
+    'Machine Learning', 'Deep Learning', 'NLP', 'Computer Vision', 'TensorFlow', 'PyTorch',
+    'Data Analysis', 'Pandas', 'NumPy', 'Power BI', 'Tableau', 'Excel',
+    'AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD', 'DevOps',
+    'Git', 'Linux', 'REST APIs', 'GraphQL', 'Microservices',
+    'Flutter', 'React Native', 'Swift', 'Kotlin', 'Android', 'iOS',
+    'Figma', 'UI/UX Design', 'Adobe XD', 'Photoshop',
+    'Blockchain', 'Solidity', 'Web3', 'Cybersecurity', 'Ethical Hacking',
+    'DSA', 'System Design', 'DBMS', 'Networking', 'Operating Systems',
+    'Communication', 'Leadership', 'Problem Solving', 'Agile', 'Scrum'
+];
+
+// State for Skill Connect
+const SCState = {
+    teachSkills: [],
+    learnSkills: [],
+    profile: JSON.parse(localStorage.getItem('sc_profile') || 'null'),
+    matches: [],
+    currentFilter: 'all',
+    mailTarget: null,
+    loading: false,
+};
+
+// Init Skill Connect when page loads
+window.addEventListener('DOMContentLoaded', () => {
+    initSkillConnect();
+});
+
+function initSkillConnect() {
+    // Setup tag input handlers
+    setupTagInput('sc-teach-input', 'sc-teach-tags', 'sc-teach-suggestions', 'teach');
+    setupTagInput('sc-learn-input', 'sc-learn-tags', 'sc-learn-suggestions', 'learn');
+
+    // Load saved profile from localStorage first (fast)
+    if (SCState.profile) {
+        SCState.teachSkills = SCState.profile.teach || [];
+        SCState.learnSkills = SCState.profile.learn || [];
+        document.getElementById('sc-name').value = SCState.profile.name || '';
+        document.getElementById('sc-email').value = SCState.profile.email || '';
+        renderTags('sc-teach-tags', SCState.teachSkills, 'teach');
+        renderTags('sc-learn-tags', SCState.learnSkills, 'learn');
+        showMatchesView();
+    }
+
+    // Show suggestions
+    showSuggestions('sc-teach-suggestions', 'teach');
+    showSuggestions('sc-learn-suggestions', 'learn');
+}
+
+function setupTagInput(inputId, tagsContainerId, suggestionsId, type) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const value = input.value.trim().replace(/,$/, '');
+            if (value) {
+                addSkillTag(value, type);
+                input.value = '';
+                showSuggestions(suggestionsId, type);
+            }
+        }
+        if (e.key === 'Backspace' && !input.value) {
+            const arr = type === 'teach' ? SCState.teachSkills : SCState.learnSkills;
+            if (arr.length) {
+                arr.pop();
+                renderTags(tagsContainerId, arr, type);
+                showSuggestions(suggestionsId, type);
+            }
+        }
+    });
+
+    input.addEventListener('input', () => {
+        showSuggestions(suggestionsId, type, input.value);
+    });
+}
+
+function addSkillTag(skill, type) {
+    const normalizedSkill = skill.charAt(0).toUpperCase() + skill.slice(1);
+    const arr = type === 'teach' ? SCState.teachSkills : SCState.learnSkills;
+    if (arr.find(s => s.toLowerCase() === normalizedSkill.toLowerCase())) {
+        showToast(`"${normalizedSkill}" is already added`, 'error');
+        return;
+    }
+    arr.push(normalizedSkill);
+    const containerId = type === 'teach' ? 'sc-teach-tags' : 'sc-learn-tags';
+    renderTags(containerId, arr, type);
+}
+
+function removeSkillTag(skill, type) {
+    const arr = type === 'teach' ? SCState.teachSkills : SCState.learnSkills;
+    const idx = arr.findIndex(s => s.toLowerCase() === skill.toLowerCase());
+    if (idx > -1) arr.splice(idx, 1);
+    const containerId = type === 'teach' ? 'sc-teach-tags' : 'sc-learn-tags';
+    const suggestionsId = type === 'teach' ? 'sc-teach-suggestions' : 'sc-learn-suggestions';
+    renderTags(containerId, arr, type);
+    showSuggestions(suggestionsId, type);
+}
+
+function renderTags(containerId, skills, type) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = skills.map(s =>
+        `<span class="sc-tag ${type}">
+            ${s}
+            <span class="sc-tag-remove" onclick="removeSkillTag('${s.replace(/'/g, "\\'")}', '${type}')">&times;</span>
+        </span>`
+    ).join('');
+}
+
+function showSuggestions(containerId, type, filter = '') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const existing = type === 'teach' ? SCState.teachSkills : SCState.learnSkills;
+    let available = SKILL_SUGGESTIONS.filter(s =>
+        !existing.find(e => e.toLowerCase() === s.toLowerCase())
+    );
+    if (filter) {
+        available = available.filter(s => s.toLowerCase().includes(filter.toLowerCase()));
+    }
+    const show = available.slice(0, 8);
+    container.innerHTML = show.map(s =>
+        `<span class="sc-suggestion-chip" onclick="addSuggestion('${s.replace(/'/g, "\\'")}', '${type}', '${containerId}')">${s}</span>`
+    ).join('');
+}
+
+function addSuggestion(skill, type, suggestionsContainerId) {
+    addSkillTag(skill, type);
+    const inputId = type === 'teach' ? 'sc-teach-input' : 'sc-learn-input';
+    document.getElementById(inputId).value = '';
+    showSuggestions(suggestionsContainerId, type);
+}
+
+// ==================== SUPABASE SAVE & FETCH ====================
+async function saveSkillProfile() {
+    const name = document.getElementById('sc-name').value.trim();
+    const email = document.getElementById('sc-email').value.trim();
+
+    if (!name) { showToast('Please enter your name', 'error'); return; }
+    if (!email) { showToast('Please enter your Gmail address', 'error'); return; }
+    if (!email.includes('@')) { showToast('Please enter a valid email', 'error'); return; }
+    if (SCState.teachSkills.length === 0 && SCState.learnSkills.length === 0) {
+        showToast('Add at least one skill to teach or learn', 'error'); return;
+    }
+
+    const btn = document.getElementById('sc-save-btn');
+    btn.classList.add('loading');
+
+    try {
+        // Upsert profile to Supabase (insert or update based on email)
+        const { data, error } = await supabase
+            .from('skill_profiles')
+            .upsert({
+                name,
+                email,
+                teach_skills: [...SCState.teachSkills],
+                learn_skills: [...SCState.learnSkills],
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'email' })
+            .select();
+
+        if (error) {
+            console.error('Supabase error:', error);
+            showToast('Error saving profile: ' + error.message, 'error');
+            btn.classList.remove('loading');
+            return;
+        }
+
+        // Save locally too for fast loading
+        SCState.profile = {
+            name,
+            email,
+            teach: [...SCState.teachSkills],
+            learn: [...SCState.learnSkills],
+        };
+        localStorage.setItem('sc_profile', JSON.stringify(SCState.profile));
+
+        showToast('Profile saved to database! Finding matches...', 'success');
+
+        btn.classList.remove('loading');
+        setTimeout(() => { showMatchesView(); }, 400);
+
+    } catch (err) {
+        console.error('Save error:', err);
+        showToast('Network error. Please try again.', 'error');
+        btn.classList.remove('loading');
+    }
+}
+
+async function showMatchesView() {
+    document.getElementById('sc-setup').style.display = 'none';
+    document.getElementById('sc-matches-section').style.display = 'block';
+
+    renderProfileBanner();
+    await computeMatches();
+    renderMatches();
+}
+
+function editSkillProfile() {
+    document.getElementById('sc-setup').style.display = '';
+    document.getElementById('sc-matches-section').style.display = 'none';
+
+    // Re-render tags and suggestions
+    renderTags('sc-teach-tags', SCState.teachSkills, 'teach');
+    renderTags('sc-learn-tags', SCState.learnSkills, 'learn');
+    showSuggestions('sc-teach-suggestions', 'teach');
+    showSuggestions('sc-learn-suggestions', 'learn');
+}
+
+function renderProfileBanner() {
+    const p = SCState.profile;
+    const initials = p.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    const allSkills = [...p.teach.map(s => ({ s, type: 'teach' })), ...p.learn.map(s => ({ s, type: 'learn' }))];
+
+    document.getElementById('sc-profile-banner').innerHTML = `
+        <div class="sc-banner-avatar">${initials}</div>
+        <div class="sc-banner-info">
+            <div class="sc-banner-name">${p.name}</div>
+            <div class="sc-banner-email">${p.email}</div>
+            <div class="sc-banner-skills">
+                ${allSkills.map(({ s, type }) => `<span class="sc-tag ${type}">${s}</span>`).join('')}
+            </div>
+        </div>
+        <div class="sc-banner-stats">
+            <div>
+                <div class="sc-banner-stat-val">${p.teach.length}</div>
+                <div class="sc-banner-stat-label">Can Teach</div>
+            </div>
+            <div>
+                <div class="sc-banner-stat-val">${p.learn.length}</div>
+                <div class="sc-banner-stat-label">Want to Learn</div>
+            </div>
+            <div>
+                <div class="sc-banner-stat-val" id="sc-match-count">${SCState.matches.length || '—'}</div>
+                <div class="sc-banner-stat-label">Matches</div>
+            </div>
+        </div>
+    `;
+}
+
+async function computeMatches() {
+    const me = SCState.profile;
+    SCState.matches = [];
+
+    // Show loading state in grid
+    const grid = document.getElementById('sc-matches-grid');
+    grid.innerHTML = `<div class="sc-empty">
+        <div class="typing-indicator"><span></span><span></span><span></span></div>
+        <h3>Finding matches from database...</h3>
+    </div>`;
+
+    try {
+        // Fetch all profiles from Supabase except the current user
+        const { data: users, error } = await supabase
+            .from('skill_profiles')
+            .select('*')
+            .neq('email', me.email);
+
+        if (error) {
+            console.error('Fetch error:', error);
+            showToast('Error fetching matches: ' + error.message, 'error');
+            return;
+        }
+
+        if (!users || users.length === 0) {
+            grid.innerHTML = `<div class="sc-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <h3>No other users yet</h3>
+                <p>Share the platform with others to start matching skills!</p>
+            </div>`;
+            return;
+        }
+
+        // Compute matches against real DB users
+        users.forEach(user => {
+            const userTeach = user.teach_skills || [];
+            const userLearn = user.learn_skills || [];
+
+            // Skills they teach that I want to learn
+            const canTeachMe = userTeach.filter(s =>
+                me.learn.find(l => l.toLowerCase() === s.toLowerCase())
+            );
+            // Skills I teach that they want to learn
+            const wantsFromMe = userLearn.filter(s =>
+                me.teach.find(t => t.toLowerCase() === s.toLowerCase())
+            );
+
+            if (canTeachMe.length === 0 && wantsFromMe.length === 0) return;
+
+            const matchScore = (canTeachMe.length + wantsFromMe.length) * 100 /
+                Math.max(1, me.learn.length + me.teach.length);
+            const score = Math.min(99, Math.round(matchScore * 2.5 + 20));
+
+            let reason = '';
+            if (canTeachMe.length > 0 && wantsFromMe.length > 0) {
+                reason = `${user.name.split(' ')[0]} can teach you ${canTeachMe.join(', ')} and wants to learn ${wantsFromMe.join(', ')} from you — a perfect mutual exchange!`;
+            } else if (canTeachMe.length > 0) {
+                reason = `${user.name.split(' ')[0]} is proficient in ${canTeachMe.join(', ')} which you want to learn.`;
+            } else {
+                reason = `${user.name.split(' ')[0]} wants to learn ${wantsFromMe.join(', ')} — something you can teach!`;
+            }
+
+            SCState.matches.push({
+                name: user.name,
+                email: user.email,
+                teach: userTeach,
+                learn: userLearn,
+                canTeachMe,
+                wantsFromMe,
+                score,
+                reason,
+                matchType: canTeachMe.length > 0 && wantsFromMe.length > 0 ? 'mutual' :
+                            canTeachMe.length > 0 ? 'canTeach' : 'wantsToLearn',
+            });
+        });
+
+        // Sort by score descending
+        SCState.matches.sort((a, b) => b.score - a.score);
+
+        // Update banner count
+        const countEl = document.getElementById('sc-match-count');
+        if (countEl) countEl.textContent = SCState.matches.length;
+
+    } catch (err) {
+        console.error('Match computation error:', err);
+        showToast('Error finding matches. Please try again.', 'error');
+    }
+}
+
+function getAvatarGradient(index) {
+    const gradients = [
+        'linear-gradient(135deg, #6C5CE7, #a29bfe)',
+        'linear-gradient(135deg, #00B4DB, #00D2FF)',
+        'linear-gradient(135deg, #FD79A8, #fdcbdd)',
+        'linear-gradient(135deg, #FDCB6E, #f9e7a1)',
+        'linear-gradient(135deg, #00B894, #55efc4)',
+        'linear-gradient(135deg, #e17055, #fab1a0)',
+        'linear-gradient(135deg, #0984e3, #74b9ff)',
+        'linear-gradient(135deg, #6c5ce7, #fd79a8)',
+    ];
+    return gradients[index % gradients.length];
+}
+
+function filterMatches(filter, btn) {
+    SCState.currentFilter = filter;
+    document.querySelectorAll('.sc-tab').forEach(t => t.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderMatches();
+}
+
+function renderMatches() {
+    const container = document.getElementById('sc-matches-grid');
+    let filtered = SCState.matches;
+
+    if (SCState.currentFilter === 'canTeach') {
+        filtered = filtered.filter(m => m.canTeachMe.length > 0);
+    } else if (SCState.currentFilter === 'wantsToLearn') {
+        filtered = filtered.filter(m => m.wantsFromMe.length > 0);
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="sc-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                <h3>No matches found</h3>
+                <p>Try adding more skills to teach or learn to discover connections.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = filtered.map((m, i) => {
+        const initials = m.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+        const scoreClass = m.score >= 70 ? 'high' : m.score >= 45 ? 'medium' : 'low';
+        const gradient = getAvatarGradient(i);
+
+        return `
+            <div class="sc-match-card" style="animation-delay: ${i * 0.08}s">
+                <div class="sc-match-header">
+                    <div class="sc-match-avatar" style="background: ${gradient}">${initials}</div>
+                    <div>
+                        <div class="sc-match-name">${m.name}</div>
+                        <div class="sc-match-email">${m.email}</div>
+                    </div>
+                    <div class="sc-match-score ${scoreClass}">${m.score}%</div>
+                </div>
+
+                <div class="sc-match-reason">${m.reason}</div>
+
+                ${m.canTeachMe.length > 0 ? `
+                    <div class="sc-match-section">
+                        <div class="sc-match-label">Can Teach You</div>
+                        <div class="sc-match-tags">
+                            ${m.canTeachMe.map(s => `<span class="sc-match-tag highlight">★ ${s}</span>`).join('')}
+                            ${m.teach.filter(s => !m.canTeachMe.find(c => c.toLowerCase() === s.toLowerCase())).map(s => `<span class="sc-match-tag normal">${s}</span>`).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${m.wantsFromMe.length > 0 ? `
+                    <div class="sc-match-section">
+                        <div class="sc-match-label">Wants to Learn From You</div>
+                        <div class="sc-match-tags">
+                            ${m.wantsFromMe.map(s => `<span class="sc-match-tag want">✦ ${s}</span>`).join('')}
+                            ${m.learn.filter(s => !m.wantsFromMe.find(c => c.toLowerCase() === s.toLowerCase())).map(s => `<span class="sc-match-tag normal">${s}</span>`).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
+                <div class="sc-match-footer">
+                    <button class="btn btn-outline btn-sm" onclick="openMailModal(${i})">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        Message via Gmail
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ==================== GMAIL MESSAGING ====================
+function openMailModal(matchIndex) {
+    const filtered = getFilteredMatches();
+    const match = filtered[matchIndex];
+    if (!match) return;
+    SCState.mailTarget = match;
+
+    const initials = match.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+    document.getElementById('sc-mail-title').textContent = `Message ${match.name}`;
+    document.getElementById('sc-mail-recipient').innerHTML = `
+        <div class="sc-mail-recipient-avatar">${initials}</div>
+        <div class="sc-mail-recipient-info">
+            <div class="sc-mail-recipient-name">${match.name}</div>
+            <div class="sc-mail-recipient-email">${match.email}</div>
+        </div>
+    `;
+
+    // Pre-fill subject and body
+    const myName = SCState.profile.name;
+    let subject = '';
+    let body = '';
+
+    if (match.canTeachMe.length > 0 && match.wantsFromMe.length > 0) {
+        subject = `Skill Exchange: ${match.canTeachMe[0]} ↔ ${match.wantsFromMe[0]}`;
+        body = `Hi ${match.name.split(' ')[0]},\n\nI found your profile on Insignia Skill Connect! I noticed you're skilled in ${match.canTeachMe.join(', ')} — which is exactly what I'm looking to learn.\n\nIn return, I can help you with ${match.wantsFromMe.join(', ')} since I have experience in those areas.\n\nWould you be open to a skill exchange session? We could set up a time that works for both of us.\n\nLooking forward to hearing from you!\n\nBest regards,\n${myName}`;
+    } else if (match.canTeachMe.length > 0) {
+        subject = `Learning ${match.canTeachMe[0]} — From Insignia Skill Connect`;
+        body = `Hi ${match.name.split(' ')[0]},\n\nI found your profile on Insignia Skill Connect and I'm impressed by your expertise in ${match.canTeachMe.join(', ')}.\n\nI'm currently looking to learn ${match.canTeachMe.join(' and ')} and would love the opportunity to learn from you. Would you be open to a mentoring session or a quick chat?\n\nThanks!\n\nBest regards,\n${myName}`;
+    } else {
+        subject = `I Can Help You Learn ${match.wantsFromMe[0]} — Insignia Skill Connect`;
+        body = `Hi ${match.name.split(' ')[0]},\n\nI came across your profile on Insignia Skill Connect and noticed you're interested in learning ${match.wantsFromMe.join(', ')}.\n\nI have experience in those areas and would be happy to help! Whether it's a quick walkthrough, pair programming, or sharing resources — I'm open to however you'd like to learn.\n\nLet me know if you're interested!\n\nBest regards,\n${myName}`;
+    }
+
+    document.getElementById('sc-mail-subject').value = subject;
+    document.getElementById('sc-mail-body').value = body;
+
+    document.getElementById('sc-mail-modal').style.display = 'flex';
+}
+
+function closeMailModal() {
+    document.getElementById('sc-mail-modal').style.display = 'none';
+    SCState.mailTarget = null;
+}
+
+function sendViaGmail() {
+    const target = SCState.mailTarget;
+    if (!target) return;
+
+    const subject = document.getElementById('sc-mail-subject').value;
+    const body = document.getElementById('sc-mail-body').value;
+
+    // Open Gmail compose in a new tab
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(target.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+    window.open(gmailUrl, '_blank');
+
+    closeMailModal();
+    showToast(`Gmail opened to message ${target.name}!`, 'success');
+}
+
+function getFilteredMatches() {
+    let filtered = SCState.matches;
+    if (SCState.currentFilter === 'canTeach') {
+        filtered = filtered.filter(m => m.canTeachMe.length > 0);
+    } else if (SCState.currentFilter === 'wantsToLearn') {
+        filtered = filtered.filter(m => m.wantsFromMe.length > 0);
+    }
+    return filtered;
+}

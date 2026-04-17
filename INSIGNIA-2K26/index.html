@@ -92,6 +92,14 @@
                     <span class="nav-label">Mock Interview</span>
                 </a>
             </li>
+            <li>
+                <a href="#" class="nav-link" data-page="skillconnect" id="nav-skillconnect">
+                    <span class="nav-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    </span>
+                    <span class="nav-label">Skill Connect</span>
+                </a>
+            </li>
         </ul>
         <div class="sidebar-footer">
             <div class="user-profile" id="user-profile-btn">
@@ -211,6 +219,17 @@
                         </div>
                         <h3>Mock Interview</h3>
                         <p>Practice with AI-simulated interviews and get scored instantly</p>
+                        <span class="action-arrow">→</span>
+                    </div>
+                </div>
+                <div class="action-card" onclick="navigateTo('skillconnect')">
+                    <div class="action-card-gradient" style="background: linear-gradient(135deg, #00B894, #55efc4)"></div>
+                    <div class="action-card-content">
+                        <div class="action-icon-lg">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        </div>
+                        <h3>Skill Connect</h3>
+                        <p>Find skill exchange partners and connect via Gmail</p>
                         <span class="action-arrow">→</span>
                     </div>
                 </div>
@@ -719,6 +738,125 @@
             </div>
         </section>
 
+        <!-- ==================== SKILL CONNECT PAGE ==================== -->
+        <section id="page-skillconnect" class="page">
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title"><span class="gradient-text">Skill</span> Connect</h1>
+                    <p class="page-subtitle">Find people to learn from or teach — connect via Gmail</p>
+                </div>
+            </header>
+
+            <!-- My Skills Setup -->
+            <div class="sc-setup glass-card" id="sc-setup">
+                <div class="sc-setup-header">
+                    <div class="sc-setup-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="url(#scGrad)" stroke-width="1.5">
+                            <defs>
+                                <linearGradient id="scGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#6C5CE7"/>
+                                    <stop offset="100%" style="stop-color:#00D2FF"/>
+                                </linearGradient>
+                            </defs>
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                    </div>
+                    <h2>Set Up Your Skill Profile</h2>
+                    <p>Tell us what you know and what you want to learn. We'll match you with the right people.</p>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="sc-name">Your Name *</label>
+                        <input type="text" id="sc-name" placeholder="e.g., Chetan K">
+                    </div>
+                    <div class="form-group">
+                        <label for="sc-email">Your Gmail *</label>
+                        <input type="email" id="sc-email" placeholder="you@gmail.com">
+                    </div>
+                </div>
+
+                <div class="sc-skills-row">
+                    <div class="sc-skill-col">
+                        <div class="sc-col-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            <span>Skills I Can Teach</span>
+                        </div>
+                        <p class="sc-col-desc">Technologies or topics you're proficient in</p>
+                        <div class="sc-tag-input-wrap">
+                            <div class="sc-tags" id="sc-teach-tags"></div>
+                            <input type="text" id="sc-teach-input" placeholder="Type a skill and press Enter" class="sc-tag-input">
+                        </div>
+                        <div class="sc-suggestions" id="sc-teach-suggestions"></div>
+                    </div>
+                    <div class="sc-skill-col">
+                        <div class="sc-col-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                            <span>Skills I Want to Learn</span>
+                        </div>
+                        <p class="sc-col-desc">What you're eager to pick up</p>
+                        <div class="sc-tag-input-wrap">
+                            <div class="sc-tags" id="sc-learn-tags"></div>
+                            <input type="text" id="sc-learn-input" placeholder="Type a skill and press Enter" class="sc-tag-input">
+                        </div>
+                        <div class="sc-suggestions" id="sc-learn-suggestions"></div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-primary btn-lg" id="sc-save-btn" onclick="saveSkillProfile()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Save & Find Matches
+                    </button>
+                </div>
+            </div>
+
+            <!-- Matches Section -->
+            <div id="sc-matches-section" style="display:none;">
+                <div class="sc-profile-banner glass-card" id="sc-profile-banner"></div>
+
+                <div class="sc-filter-bar">
+                    <div class="sc-filter-tabs">
+                        <button class="sc-tab active" data-filter="all" onclick="filterMatches('all', this)">All Matches</button>
+                        <button class="sc-tab" data-filter="canTeach" onclick="filterMatches('canTeach', this)">Can Teach You</button>
+                        <button class="sc-tab" data-filter="wantsToLearn" onclick="filterMatches('wantsToLearn', this)">Wants to Learn From You</button>
+                    </div>
+                    <button class="btn btn-outline btn-sm" onclick="editSkillProfile()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Edit Profile
+                    </button>
+                </div>
+
+                <div class="sc-matches-grid" id="sc-matches-grid"></div>
+            </div>
+
+            <!-- Gmail Compose Modal -->
+            <div id="sc-mail-modal" class="modal-overlay" style="display:none">
+                <div class="modal glass-card sc-mail-modal">
+                    <div class="modal-header">
+                        <h2 id="sc-mail-title">Send Message</h2>
+                        <button class="modal-close" onclick="closeMailModal()">×</button>
+                    </div>
+                    <div class="sc-mail-recipient" id="sc-mail-recipient"></div>
+                    <div class="form-group">
+                        <label for="sc-mail-subject">Subject</label>
+                        <input type="text" id="sc-mail-subject" value="">
+                    </div>
+                    <div class="form-group">
+                        <label for="sc-mail-body">Message</label>
+                        <textarea id="sc-mail-body" rows="6" placeholder="Write your message here..."></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-outline" onclick="closeMailModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="sendViaGmail()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            Open in Gmail
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
     </main>
 
     <!-- ==================== PROFILE MODAL ==================== -->
@@ -770,6 +908,7 @@
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="app.js"></script>
 </body>
 </html>
