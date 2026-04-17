@@ -644,7 +644,12 @@ document.getElementById('user-profile-btn')?.addEventListener('click', showProfi
 // ==================== SUPABASE CONFIG ====================
 const SUPABASE_URL = 'https://qzhodtpzajupwgoghmcw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6aG9kdHB6YWp1cHdnb2dobWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDQ4NzksImV4cCI6MjA5MjAyMDg3OX0.av43zZ-nAZg4FOnHfXNRK_LKL-CAeUZR-ewgdn3VbsI';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let supabase;
+try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} catch (e) {
+    console.warn('Supabase SDK not loaded, Skill Connect will work in offline mode.');
+}
 
 // ==================== SKILL CONNECT ====================
 const SKILL_SUGGESTIONS = [
@@ -798,6 +803,16 @@ async function saveSkillProfile() {
     const btn = document.getElementById('sc-save-btn');
     btn.classList.add('loading');
 
+    if (!supabase) {
+        // Offline fallback — save locally only
+        SCState.profile = { name, email, teach: [...SCState.teachSkills], learn: [...SCState.learnSkills] };
+        localStorage.setItem('sc_profile', JSON.stringify(SCState.profile));
+        showToast('Profile saved locally (database unavailable)', 'info');
+        btn.classList.remove('loading');
+        setTimeout(() => { showMatchesView(); }, 400);
+        return;
+    }
+
     try {
         // Upsert profile to Supabase (insert or update based on email)
         const { data, error } = await supabase
@@ -900,6 +915,18 @@ async function computeMatches() {
         <div class="typing-indicator"><span></span><span></span><span></span></div>
         <h3>Finding matches from database...</h3>
     </div>`;
+
+    if (!supabase) {
+        grid.innerHTML = `<div class="sc-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <h3>Database not connected</h3>
+            <p>Supabase SDK could not load. Check your internet connection and refresh.</p>
+        </div>`;
+        return;
+    }
 
     try {
         // Fetch all profiles from Supabase except the current user
