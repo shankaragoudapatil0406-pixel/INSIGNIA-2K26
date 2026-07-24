@@ -14,19 +14,53 @@ const AppState = {
 };
 
 // ==================== INIT ====================
+let _appInitialized = false;
+
+function hideLoadingScreen() {
+    const loader = document.getElementById('loading-screen');
+    if (loader) {
+        loader.classList.add('fade-out');
+        loader.style.opacity = '0';
+        loader.style.pointerEvents = 'none';
+        setTimeout(() => { loader.style.display = 'none'; }, 300);
+    }
+}
+
+// Hard fail-safe: if app hasn't initialized within 1.5s, force-show the auth screen
+setTimeout(() => {
+    if (!_appInitialized) {
+        console.warn('App init timeout — forcing auth screen');
+        hideLoadingScreen();
+        // Show auth screen so the user isn't stuck on a blank loader
+        const authScreen = document.getElementById('auth-screen');
+        const appWrapper = document.getElementById('app-wrapper');
+        if (authScreen && authScreen.style.display !== 'flex') {
+            // Only override if nothing has been shown yet
+            if (!appWrapper || appWrapper.style.display === 'none' || !appWrapper.classList.contains('authenticated')) {
+                if (authScreen) authScreen.style.display = 'flex';
+            }
+        }
+    }
+}, 1500);
+
 window.addEventListener('DOMContentLoaded', async () => {
-    // Check auth state
-    await checkAuthState();
+    try {
+        setupNavigation();
+        loadProfile();
+        updateStats();
+        updateReadiness();
+        setupOTPInputs();
 
-    setTimeout(() => {
-        document.getElementById('loading-screen').classList.add('fade-out');
-    }, 2000);
-
-    setupNavigation();
-    loadProfile();
-    updateStats();
-    updateReadiness();
-    setupOTPInputs();
+        // Check auth state with graceful fallback
+        await checkAuthState();
+    } catch (err) {
+        console.error('App initialization error:', err);
+        // On any error, fall back to showing auth screen
+        try { showAuthScreen(); } catch(e2) {}
+    } finally {
+        _appInitialized = true;
+        hideLoadingScreen();
+    }
 });
 
 // ==================== NAVIGATION ====================
@@ -40,11 +74,43 @@ function setupNavigation() {
 }
 
 function navigateTo(page) {
+    const currentPage = document.querySelector('.page.active')?.id?.replace('page-', '');
+
+    // Side effects: LEAVING a page
+    if (currentPage === 'mock' && AppState.mockTimer) {
+        clearInterval(AppState.mockTimer);
+        AppState.mockTimer = null;
+    }
+
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    document.getElementById('page-' + page).classList.add('active');
+    document.getElementById('page-' + page)?.classList.add('active');
     const navLink = document.querySelector(`[data-page="${page}"]`);
     if (navLink) navLink.classList.add('active');
+
+    // Side effects: ENTERING a page
+    if (page === 'skillconnect') {
+        const scEmailEl = document.getElementById('sc-email');
+        const scNameEl = document.getElementById('sc-name');
+        if (scEmailEl && !scEmailEl.value && authEmail) scEmailEl.value = authEmail;
+        if (scNameEl && !scNameEl.value && authEmail) scNameEl.value = authEmail.split('@')[0];
+    }
+
+    // Scroll main content to top
+    document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Close mobile sidebar
+    closeSidebar();
+}
+
+function toggleSidebar() {
+    document.getElementById('sidebar')?.classList.toggle('open');
+    document.getElementById('sidebar-overlay')?.classList.toggle('active');
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebar-overlay')?.classList.remove('active');
 }
 
 // ==================== TOAST ====================
@@ -58,33 +124,239 @@ function showToast(message, type = 'info') {
 }
 
 // ==================== PROFILE ====================
-function showProfileModal() { document.getElementById('profile-modal').style.display = 'flex'; }
-function closeProfileModal() { document.getElementById('profile-modal').style.display = 'none'; }
+const PROFILE_SKILL_SUGGESTIONS_LIST = [
+    'JavaScript','TypeScript','Python','Java','C++','C#','Go','Rust','Swift','Kotlin',
+    'React','Vue','Angular','Next.js','Node.js','Express','FastAPI','Django','Spring Boot',
+    'HTML','CSS','Tailwind CSS','SASS','GraphQL','REST API','PostgreSQL','MySQL','MongoDB',
+    'Redis','Docker','Kubernetes','AWS','Azure','GCP','Git','Linux','Figma','Photoshop',
+    'Machine Learning','Deep Learning','TensorFlow','PyTorch','Pandas','NumPy','Tableau',
+    'Power BI','SQL','Excel','R','Scala','Hadoop','Spark','Kafka','Terraform','Ansible',
+    'React Native','Flutter','Dart','OWASP','Cybersecurity','Blockchain','Solidity'
+];
+
+let profileSkills = [];
+
+function showProfileModal() {
+    const modal = document.getElementById('profile-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+
+    if (AppState.profile) {
+        loadProfile();
+    } else {
+        const emailEl = document.getElementById('profile-email-display');
+        if (emailEl && !emailEl.value && authEmail && !authEmail.includes('@guest.local')) {
+            emailEl.value = authEmail;
+        }
+        const nameEl = document.getElementById('profile-name');
+        if (nameEl && !nameEl.value && authEmail) {
+            nameEl.value = authEmail.split('@')[0];
+        }
+        updateProfilePreview();
+        updateProfileCompleteness();
+        renderProfileSkillChips();
+    }
+}
+
+function closeProfileModal() {
+    document.getElementById('profile-modal').style.display = 'none';
+    document.getElementById('profile-skill-suggestions').innerHTML = '';
+}
 
 function saveProfile(e) {
     e.preventDefault();
+    const btn = document.getElementById('profile-save-btn');
+    btn.disabled = true;
+
     AppState.profile = {
-        name: document.getElementById('profile-name').value,
-        role: document.getElementById('profile-role').value,
-        level: document.getElementById('profile-level').value,
-        domain: document.getElementById('profile-domain').value
+        name:         document.getElementById('profile-name').value.trim(),
+        email:        document.getElementById('profile-email-display').value.trim(),
+        college:      document.getElementById('profile-college').value.trim(),
+        location:     document.getElementById('profile-location').value.trim(),
+        bio:          document.getElementById('profile-bio').value.trim(),
+        role:         document.getElementById('profile-role').value.trim(),
+        level:        document.getElementById('profile-level').value,
+        domain:       document.getElementById('profile-domain').value,
+        availability: document.getElementById('profile-availability').value,
+        skills:       [...profileSkills],
+        linkedin:     document.getElementById('profile-linkedin').value.trim(),
+        github:       document.getElementById('profile-github').value.trim(),
+        portfolio:    document.getElementById('profile-portfolio').value.trim(),
+        leetcode:     document.getElementById('profile-leetcode').value.trim()
     };
+
     localStorage.setItem('insignia_profile', JSON.stringify(AppState.profile));
-    loadProfile();
+    applyProfileToUI(AppState.profile);
     closeProfileModal();
-    showToast('Profile saved successfully!', 'success');
+    showToast('Profile saved!', 'success');
+    btn.disabled = false;
 }
 
 function loadProfile() {
-    if (AppState.profile) {
-        document.getElementById('display-user-name').textContent = AppState.profile.name;
-        document.getElementById('display-user-role').textContent = AppState.profile.role || 'No role set';
-        document.getElementById('profile-name').value = AppState.profile.name || '';
-        document.getElementById('profile-role').value = AppState.profile.role || '';
-        document.getElementById('profile-level').value = AppState.profile.level || 'fresher';
-        document.getElementById('profile-domain').value = AppState.profile.domain || 'technology';
+    if (!AppState.profile) return;
+    const p = AppState.profile;
+    profileSkills = p.skills ? [...p.skills] : [];
+
+    // Populate all fields
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val != null) el.value = val; };
+    set('profile-name', p.name);
+    set('profile-email-display', p.email || authEmail || '');
+    set('profile-college', p.college);
+    set('profile-location', p.location);
+    set('profile-bio', p.bio);
+    set('profile-role', p.role);
+    set('profile-level', p.level);
+    set('profile-domain', p.domain);
+    set('profile-availability', p.availability);
+    set('profile-linkedin', p.linkedin);
+    set('profile-github', p.github);
+    set('profile-portfolio', p.portfolio);
+    set('profile-leetcode', p.leetcode);
+
+    applyProfileToUI(p);
+    renderProfileSkillChips();
+    updateProfilePreview();
+    updateProfileCompleteness();
+}
+
+function applyProfileToUI(p) {
+    // Sidebar display
+    const nameEl = document.getElementById('display-user-name');
+    const roleEl = document.getElementById('display-user-role');
+    if (nameEl) nameEl.textContent = p.name || 'Your Name';
+    if (roleEl) roleEl.textContent = p.role || (p.domain ? p.domain : 'Set up profile →');
+}
+
+// Live avatar + identity preview
+function updateProfilePreview() {
+    const name   = document.getElementById('profile-name')?.value?.trim() || '';
+    const role   = document.getElementById('profile-role')?.value?.trim() || '';
+    const level  = document.getElementById('profile-level')?.value || '';
+    const college = document.getElementById('profile-college')?.value?.trim() || '';
+
+    // Initials
+    const initials = name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+    const initialsEl = document.getElementById('profile-avatar-initials');
+    if (initialsEl) initialsEl.textContent = initials;
+
+    // Name line
+    const namePreviewEl = document.getElementById('profile-identity-name');
+    if (namePreviewEl) namePreviewEl.textContent = name || 'Your Name';
+
+    // Role line
+    const rolePreviewEl = document.getElementById('profile-identity-role');
+    const levelLabels = { fresher: 'Fresher', junior: 'Junior', mid: 'Mid-Level', senior: 'Senior' };
+    if (rolePreviewEl) {
+        const parts = [role, levelLabels[level]].filter(Boolean);
+        const collegePart = college ? ` · ${college}` : '';
+        rolePreviewEl.textContent = (parts.join(' · ') || 'Target Role · Level') + collegePart;
+    }
+
+    updateProfileBadges();
+    updateProfileCompleteness();
+}
+
+function updateProfileBadges() {
+    const domain = document.getElementById('profile-domain')?.value || '';
+    const availability = document.getElementById('profile-availability')?.value || '';
+    const badgesEl = document.getElementById('profile-identity-badges');
+    if (!badgesEl) return;
+
+    const domainColors = {
+        technology: '#6C5CE7', data: '#00B894', design: '#FD79A8',
+        product: '#FDCB6E', marketing: '#E17055', finance: '#00D2FF', other: '#a29bfe'
+    };
+    const availColors = { open: '#00B894', active: '#00D2FF', passive: '#FDCB6E', 'not-looking': '#FF6B6B' };
+    const availLabels = { open: '🟢 Open', active: '🔵 Active', passive: '🟡 Passive', 'not-looking': '🔴 Not Looking' };
+
+    badgesEl.innerHTML = `
+        ${domain ? `<span class="profile-badge" style="background:${domainColors[domain]}22;color:${domainColors[domain]};border-color:${domainColors[domain]}44">${domain.charAt(0).toUpperCase()+domain.slice(1)}</span>` : ''}
+        ${availability ? `<span class="profile-badge" style="background:${availColors[availability]}22;color:${availColors[availability]};border-color:${availColors[availability]}44">${availLabels[availability]}</span>` : ''}
+    `;
+}
+
+function updateProfileCompleteness() {
+    const fields = [
+        document.getElementById('profile-name')?.value?.trim(),
+        document.getElementById('profile-email-display')?.value?.trim(),
+        document.getElementById('profile-college')?.value?.trim(),
+        document.getElementById('profile-location')?.value?.trim(),
+        document.getElementById('profile-bio')?.value?.trim(),
+        document.getElementById('profile-role')?.value?.trim(),
+        profileSkills.length > 0 ? 'yes' : '',
+        document.getElementById('profile-linkedin')?.value?.trim() ||
+        document.getElementById('profile-github')?.value?.trim() ||
+        document.getElementById('profile-portfolio')?.value?.trim()
+    ];
+    const filled = fields.filter(Boolean).length;
+    const pct = Math.round((filled / fields.length) * 100);
+
+    const bar = document.getElementById('profile-completeness-bar');
+    const label = document.getElementById('profile-completeness-label');
+    if (bar) {
+        bar.style.width = pct + '%';
+        bar.style.background = pct < 40 ? 'var(--accent-red)' : pct < 75 ? 'var(--accent-yellow)' : 'var(--accent-green)';
+    }
+    if (label) {
+        const msg = pct === 100 ? '🎉 Perfect profile!' :
+                    pct >= 75  ? `${pct}% complete — almost there!` :
+                    pct >= 40  ? `${pct}% complete — keep going!` :
+                                 `${pct}% complete — fill in more details`;
+        label.textContent = msg;
     }
 }
+
+// Skill chips
+function profileSkillSuggest(val) {
+    const q = val.trim().toLowerCase();
+    const container = document.getElementById('profile-skill-suggestions');
+    if (!container) return;
+    if (!q) { container.innerHTML = ''; return; }
+    const matches = PROFILE_SKILL_SUGGESTIONS_LIST.filter(s =>
+        s.toLowerCase().includes(q) && !profileSkills.includes(s)
+    ).slice(0, 6);
+    container.innerHTML = matches.map(s =>
+        `<button type="button" class="sc-suggestion-chip" onclick="profileAddSkill('${s}')">${s}</button>`
+    ).join('');
+}
+
+function profileSkillKeydown(e) {
+    const input = e.target;
+    if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        const val = input.value.replace(/,$/, '').trim();
+        if (val) profileAddSkill(val);
+        input.value = '';
+        document.getElementById('profile-skill-suggestions').innerHTML = '';
+    }
+}
+
+function profileAddSkill(skill) {
+    const s = skill.trim();
+    if (!s || profileSkills.includes(s)) return;
+    profileSkills.push(s);
+    renderProfileSkillChips();
+    const inp = document.getElementById('profile-skills-input');
+    if (inp) inp.value = '';
+    document.getElementById('profile-skill-suggestions').innerHTML = '';
+    updateProfileCompleteness();
+}
+
+function profileRemoveSkill(skill) {
+    profileSkills = profileSkills.filter(s => s !== skill);
+    renderProfileSkillChips();
+    updateProfileCompleteness();
+}
+
+function renderProfileSkillChips() {
+    const container = document.getElementById('profile-skill-chips');
+    if (!container) return;
+    container.innerHTML = profileSkills.map(s =>
+        `<span class="sc-tag">${s}<button type="button" class="sc-tag-remove" onclick="profileRemoveSkill('${s}')">×</button></span>`
+    ).join('');
+}
+
+
 
 // ==================== STATS ====================
 function updateStats() {
@@ -127,10 +399,18 @@ function updateReadiness() {
 // ==================== RESUME BUILDER ====================
 function addEducation() {
     const container = document.getElementById('education-entries');
-    const idx = container.children.length;
     const block = document.createElement('div');
     block.className = 'entry-block';
-    block.innerHTML = `<div class="form-grid"><div class="form-group"><label>Degree</label><input type="text" class="edu-degree" placeholder="M.S. in Data Science"></div><div class="form-group"><label>Institution</label><input type="text" class="edu-institution" placeholder="Stanford University"></div><div class="form-group"><label>Year</label><input type="text" class="edu-year" placeholder="2024 - 2026"></div><div class="form-group"><label>GPA</label><input type="text" class="edu-gpa" placeholder="3.9 / 4.0"></div></div>`;
+    block.innerHTML = `
+        <div class="entry-block-header">
+            <button type="button" class="btn-delete-entry" onclick="deleteEntryBlock(this)">✕ Remove</button>
+        </div>
+        <div class="form-grid">
+            <div class="form-group"><label>Degree</label><input type="text" class="edu-degree" placeholder="M.S. in Data Science"></div>
+            <div class="form-group"><label>Institution</label><input type="text" class="edu-institution" placeholder="Stanford University"></div>
+            <div class="form-group"><label>Year</label><input type="text" class="edu-year" placeholder="2024 - 2026"></div>
+            <div class="form-group"><label>GPA</label><input type="text" class="edu-gpa" placeholder="3.9 / 4.0"></div>
+        </div>`;
     container.appendChild(block);
 }
 
@@ -138,7 +418,16 @@ function addExperience() {
     const container = document.getElementById('experience-entries');
     const block = document.createElement('div');
     block.className = 'entry-block';
-    block.innerHTML = `<div class="form-grid"><div class="form-group"><label>Job Title</label><input type="text" class="exp-title" placeholder="Software Engineer"></div><div class="form-group"><label>Company</label><input type="text" class="exp-company" placeholder="Amazon"></div><div class="form-group"><label>Duration</label><input type="text" class="exp-duration" placeholder="Jan 2024 - Present"></div></div><div class="form-group"><label>Key Responsibilities</label><textarea class="exp-desc" rows="3" placeholder="Describe contributions..."></textarea></div>`;
+    block.innerHTML = `
+        <div class="entry-block-header">
+            <button type="button" class="btn-delete-entry" onclick="deleteEntryBlock(this)">✕ Remove</button>
+        </div>
+        <div class="form-grid">
+            <div class="form-group"><label>Job Title</label><input type="text" class="exp-title" placeholder="Software Engineer"></div>
+            <div class="form-group"><label>Company</label><input type="text" class="exp-company" placeholder="Amazon"></div>
+            <div class="form-group"><label>Duration</label><input type="text" class="exp-duration" placeholder="Jan 2024 - Present"></div>
+        </div>
+        <div class="form-group"><label>Key Responsibilities</label><textarea class="exp-desc" rows="3" placeholder="Describe contributions..."></textarea></div>`;
     container.appendChild(block);
 }
 
@@ -146,8 +435,20 @@ function addProject() {
     const container = document.getElementById('project-entries');
     const block = document.createElement('div');
     block.className = 'entry-block';
-    block.innerHTML = `<div class="form-grid"><div class="form-group"><label>Project Name</label><input type="text" class="proj-name" placeholder="Project Name"></div><div class="form-group"><label>Technologies</label><input type="text" class="proj-tech" placeholder="React, Python"></div></div><div class="form-group"><label>Description</label><textarea class="proj-desc" rows="2" placeholder="Brief description..."></textarea></div>`;
+    block.innerHTML = `
+        <div class="entry-block-header">
+            <button type="button" class="btn-delete-entry" onclick="deleteEntryBlock(this)">✕ Remove</button>
+        </div>
+        <div class="form-grid">
+            <div class="form-group"><label>Project Name</label><input type="text" class="proj-name" placeholder="Project Name"></div>
+            <div class="form-group"><label>Technologies</label><input type="text" class="proj-tech" placeholder="React, Python"></div>
+        </div>
+        <div class="form-group"><label>Description</label><textarea class="proj-desc" rows="2" placeholder="Brief description..."></textarea></div>`;
     container.appendChild(block);
+}
+
+function deleteEntryBlock(btn) {
+    btn.closest('.entry-block').remove();
 }
 
 function generateResume(e) {
@@ -749,6 +1050,179 @@ const STUDY_DATA = {
                 { name: 'Data Wrangling', desc: 'Clean and prepare data.', points: ['Pandas and NumPy mastery', 'Handling missing data strategies', 'Feature engineering techniques', 'Data pipeline creation'] }
             ]}
         ]
+    },
+    'fullstack': {
+        title: 'Full Stack Developer',
+        modules: [
+            { title: 'Frontend Mastery', topics: [
+                { name: 'React & TypeScript', desc: 'Build robust UIs with React and TypeScript.', points: ['Component design patterns and reusability', 'TypeScript interfaces, generics, and utility types', 'State management with Zustand or Redux Toolkit', 'Next.js for SSR, SSG, and ISR'] },
+                { name: 'Modern CSS', desc: 'Create adaptive, beautiful interfaces.', points: ['Flexbox and CSS Grid mastery', 'Responsive design and mobile-first approach', 'Tailwind CSS vs vanilla CSS trade-offs', 'CSS animations and micro-interactions'] }
+            ]},
+            { title: 'Backend Development', topics: [
+                { name: 'Node.js & APIs', desc: 'Server-side JavaScript development.', points: ['Express.js routing and middleware patterns', 'RESTful and GraphQL API design', 'Authentication: JWT, OAuth2, sessions', 'Input validation, error handling, logging'] },
+                { name: 'Databases', desc: 'Connect and query databases effectively.', points: ['SQL with PostgreSQL: joins, indexes, transactions', 'NoSQL with MongoDB and Mongoose ODM', 'ORM tools: Prisma, Sequelize, TypeORM', 'Caching strategies with Redis'] }
+            ]},
+            { title: 'DevOps & Deployment', topics: [
+                { name: 'Full Stack Shipping', desc: 'Deploy and maintain full stack applications.', points: ['Docker for dev/prod environment parity', 'CI/CD pipelines with GitHub Actions', 'Deployment to Vercel, Railway, or AWS', 'Environment variables and secrets management'] }
+            ]}
+        ]
+    },
+    'devops': {
+        title: 'DevOps Engineer',
+        modules: [
+            { title: 'Containerization & Orchestration', topics: [
+                { name: 'Docker', desc: 'Package and run apps in containers.', points: ['Dockerfile authoring and multi-stage builds', 'Docker Compose for multi-service local dev', 'Image optimization and layer caching', 'Container networking and volume management'] },
+                { name: 'Kubernetes', desc: 'Orchestrate containers at scale.', points: ['Pods, Deployments, Services, and Ingress', 'ConfigMaps, Secrets, and Namespaces', 'Horizontal Pod Autoscaling (HPA)', 'Helm charts for package management'] }
+            ]},
+            { title: 'CI/CD Pipelines', topics: [
+                { name: 'Automation', desc: 'Automate build, test, and deploy cycles.', points: ['GitHub Actions workflows and runners', 'Jenkins / GitLab CI pipeline design', 'Blue-green and canary deployment strategies', 'Rollback mechanisms and release gates'] }
+            ]},
+            { title: 'Infrastructure as Code', topics: [
+                { name: 'Terraform & Ansible', desc: 'Define infrastructure programmatically.', points: ['Terraform providers, modules, and remote state', 'State locking with S3 and DynamoDB backend', 'Ansible playbooks and inventory management', 'Idempotent configuration principles'] }
+            ]},
+            { title: 'Monitoring & Observability', topics: [
+                { name: 'Observability Stack', desc: 'Track system health proactively.', points: ['Prometheus metrics collection and exporters', 'Grafana dashboards and alerting rules', 'ELK/EFK stack for centralized log aggregation', 'Distributed tracing with Jaeger or Zipkin'] }
+            ]}
+        ]
+    },
+    'mobile': {
+        title: 'Mobile Developer',
+        modules: [
+            { title: 'React Native', topics: [
+                { name: 'Core Development', desc: 'Cross-platform mobile with React Native.', points: ['Core components and native APIs', 'React Navigation v6: stack, tab, drawer navigators', 'State management: Context, Redux, Zustand', 'Expo managed vs bare workflow trade-offs'] },
+                { name: 'Device Features & Performance', desc: 'Access native capabilities and optimize.', points: ['Camera, GPS, push notifications, biometrics', 'AsyncStorage, SQLite, MMKV for local persistence', 'Performance: FlatList, memo, Hermes JS engine', 'Deep linking and universal links'] }
+            ]},
+            { title: 'Flutter', topics: [
+                { name: 'Dart & Flutter Widgets', desc: 'Build beautiful native UIs with Flutter.', points: ['Dart null safety and async/await patterns', 'Widget tree: stateful vs stateless widgets', 'Material 3 and Cupertino (iOS) design systems', 'State management: Provider, Riverpod, BLoC'] }
+            ]},
+            { title: 'Publishing', topics: [
+                { name: 'App Store Deployment', desc: 'Ship apps to production stores.', points: ['Apple App Store submission and review process', 'Google Play Console and release tracks', 'Code signing, certificates, and provisioning profiles', 'OTA updates with EAS Update or CodePush'] }
+            ]}
+        ]
+    },
+    'ml-engineer': {
+        title: 'ML Engineer',
+        modules: [
+            { title: 'ML Algorithms', topics: [
+                { name: 'Supervised Learning', desc: 'Learn from labeled data.', points: ['Linear and logistic regression fundamentals', 'Tree-based: Random Forest, XGBoost, LightGBM', 'SVM, KNN, and Naive Bayes classifiers', 'Evaluation: cross-validation, ROC-AUC, PR-AUC'] },
+                { name: 'Deep Learning', desc: 'Neural network architectures.', points: ['CNNs for image tasks', 'RNNs and LSTMs for sequential data', 'Transformer and self-attention mechanism', 'Transfer learning and fine-tuning pretrained models'] }
+            ]},
+            { title: 'MLOps', topics: [
+                { name: 'Production ML', desc: 'Productionize and monitor models.', points: ['ML pipelines: Kubeflow, Airflow, ZenML', 'Model versioning with MLflow and DVC', 'Feature stores: Feast, Tecton, Hopsworks', 'Model monitoring and data/concept drift detection'] }
+            ]},
+            { title: 'Generative AI', topics: [
+                { name: 'LLMs & AI Agents', desc: 'Build with large language models.', points: ['Prompt engineering: zero-shot, few-shot, chain-of-thought', 'RAG: vector databases and semantic search', 'Fine-tuning with LoRA/QLoRA (PEFT methods)', 'LangChain, LlamaIndex, and agent frameworks'] }
+            ]}
+        ]
+    },
+    'product-manager': {
+        title: 'Product Manager',
+        modules: [
+            { title: 'Product Strategy', topics: [
+                { name: 'Vision & Roadmapping', desc: 'Define where the product goes.', points: ['Writing a compelling product vision statement', 'OKRs and KPIs: setting measurable goals', 'Prioritization frameworks: RICE, ICE, MoSCoW', 'Competitive analysis and market positioning'] },
+                { name: 'User Research', desc: 'Understand your users deeply.', points: ['User interviews and contextual inquiry', 'Jobs-to-be-done (JTBD) framework', 'Persona creation and empathy mapping', 'Usability testing and think-aloud studies'] }
+            ]},
+            { title: 'Execution', topics: [
+                { name: 'Agile Delivery', desc: 'Ship value iteratively.', points: ['Sprint planning and backlog refinement', 'User story writing: As a... I want... So that...', 'Acceptance criteria and definition of done', 'Managing scope creep and trade-offs'] },
+                { name: 'Analytics & Metrics', desc: 'Measure what matters.', points: ['Pirate metrics: AARRR funnel framework', 'Cohort analysis and retention curves', 'A/B testing design and statistical significance', 'DAU/MAU, NPS, LTV, and churn metrics'] }
+            ]},
+            { title: 'Stakeholder Management', topics: [
+                { name: 'Communication & Influence', desc: 'Align teams without authority.', points: ['Executive presentations and storytelling', 'Writing clear PRDs and product specs', 'Managing engineering/design partnerships', 'Negotiating trade-offs and building consensus'] }
+            ]}
+        ]
+    },
+    'ux-designer': {
+        title: 'UX Designer',
+        modules: [
+            { title: 'Research & Strategy', topics: [
+                { name: 'Design Thinking', desc: 'Human-centered design process.', points: ['5 stages: Empathize → Define → Ideate → Prototype → Test', 'Needfinding through observation and interviews', 'Affinity mapping and insight synthesis', 'How Might We (HMW) ideation technique'] },
+                { name: 'UX Research Methods', desc: 'Gather actionable user insights.', points: ['Qualitative vs quantitative research approaches', 'Card sorting and tree testing for IA', 'Moderated and remote usability testing', 'Heuristic evaluation (Nielsen 10 heuristics)'] }
+            ]},
+            { title: 'UX/UI Craft', topics: [
+                { name: 'Figma Mastery', desc: 'Industry-standard design tool.', points: ['Components, variants, and auto-layout', 'Interactive prototyping and micro-animations', 'Design tokens, styles, and variables', 'Dev handoff: inspect mode and redlines'] },
+                { name: 'Information Architecture', desc: 'Structure and organize content.', points: ['Navigation patterns: tabs, drawer, hub-and-spoke', 'Wireframing: lo-fi to hi-fi progression', 'Gestalt principles in visual design', 'Accessibility: WCAG 2.1 AA compliance'] }
+            ]},
+            { title: 'Portfolio & Growth', topics: [
+                { name: 'Case Studies', desc: 'Present your design process compellingly.', points: ['Problem → Research → Design → Test → Measure', 'Quantifying design impact with before/after metrics', 'Presenting design decisions and trade-offs', 'Showcasing failures and lessons learned'] }
+            ]}
+        ]
+    },
+    'cybersecurity': {
+        title: 'Cybersecurity Analyst',
+        modules: [
+            { title: 'Security Fundamentals', topics: [
+                { name: 'Core Concepts', desc: 'CIA triad and foundational security.', points: ['Confidentiality, Integrity, Availability (CIA triad)', 'Authentication, authorization, and access control', 'Symmetric and asymmetric encryption', 'PKI, digital certificates, and TLS/SSL'] },
+                { name: 'Network Security', desc: 'Protect network infrastructure.', points: ['Firewalls, WAFs, IDS/IPS configuration', 'Zero Trust architecture principles', 'TCP/IP, DNS, HTTP protocols and attack vectors', 'VPNs and network segmentation strategies'] }
+            ]},
+            { title: 'Ethical Hacking', topics: [
+                { name: 'Penetration Testing', desc: 'Find vulnerabilities before attackers.', points: ['Recon: OSINT, Nmap, Shodan, theHarvester', 'Exploitation: Metasploit, Burp Suite, SQLmap', 'OWASP Top 10 web vulnerabilities', 'Pen test report writing and remediation advice'] }
+            ]},
+            { title: 'Incident Response', topics: [
+                { name: 'SOC & Threat Detection', desc: 'Detect, respond, and recover.', points: ['SIEM tools: Splunk, Microsoft Sentinel', 'Log analysis and event correlation rules', 'IR playbooks aligned to NIST framework', 'Digital forensics and chain of custody'] }
+            ]}
+        ]
+    },
+    'cloud-architect': {
+        title: 'Cloud Architect',
+        modules: [
+            { title: 'Cloud Platforms', topics: [
+                { name: 'AWS / Azure / GCP Core Services', desc: 'Master the major cloud providers.', points: ['Compute: EC2, Lambda, Azure Functions, Cloud Run', 'Storage: S3, Blob Storage, Cloud Storage, EFS', 'Networking: VPC, subnets, load balancers, Route53', 'IAM: roles, policies, and least-privilege access'] }
+            ]},
+            { title: 'Architecture Patterns', topics: [
+                { name: 'Well-Architected Framework', desc: 'Design for reliability and scale.', points: ['6 pillars: security, reliability, performance, cost, sustainability, operations', 'Serverless and event-driven architecture patterns', 'Microservices design and service mesh (Istio)', 'Multi-region active-active and disaster recovery'] }
+            ]},
+            { title: 'Cost & Performance', topics: [
+                { name: 'FinOps & Optimization', desc: 'Maximize cloud ROI.', points: ['Reserved vs on-demand vs spot instance pricing', 'Auto-scaling and right-sizing workloads', 'Cost allocation with tags, budgets, and alerts', 'CDN strategies and edge caching for performance'] }
+            ]},
+            { title: 'Certifications', topics: [
+                { name: 'Cloud Cert Roadmap', desc: 'Recognized cloud certifications.', points: ['AWS Solutions Architect Associate (SAA-C03)', 'Azure AZ-104: Microsoft Azure Administrator', 'GCP Associate Cloud Engineer (ACE)', 'Kubernetes CKA and CKAD certifications'] }
+            ]}
+        ]
+    },
+    'data-analyst': {
+        title: 'Data Analyst',
+        modules: [
+            { title: 'Data Wrangling', topics: [
+                { name: 'SQL Mastery', desc: 'Query and analyze relational data.', points: ['SELECT, WHERE, GROUP BY, HAVING, ORDER BY', 'INNER, LEFT, RIGHT, FULL, and CROSS JOINs', 'Window functions: RANK, ROW_NUMBER, LAG, LEAD', 'CTEs, subqueries, and recursive queries'] },
+                { name: 'Python for Analysis', desc: 'Automate and scale your analysis.', points: ['Pandas: DataFrames, groupby, merge, pivot_table', 'NumPy for numerical and array operations', 'Data cleaning: nulls, outliers, type coercion', 'EDA workflow and pattern discovery techniques'] }
+            ]},
+            { title: 'Visualization', topics: [
+                { name: 'BI Tools & Reporting', desc: 'Communicate insights visually.', points: ['Power BI: DAX formulas, data models, and slicers', 'Tableau: LOD calculations, sets, and filter actions', 'Matplotlib and Seaborn for Python charts', 'Data storytelling: choosing the right chart type'] }
+            ]},
+            { title: 'Statistics', topics: [
+                { name: 'Applied Business Statistics', desc: 'Use stats to drive decisions.', points: ['Descriptive stats: mean, median, variance, IQR', 'Hypothesis testing: t-test, chi-square, ANOVA', 'Regression analysis and coefficient interpretation', 'Cohort analysis, funnel metrics, and A/B testing'] }
+            ]}
+        ]
+    },
+    'marketing': {
+        title: 'Marketing Manager',
+        modules: [
+            { title: 'Digital Marketing', topics: [
+                { name: 'SEO & Content Marketing', desc: 'Drive organic growth and authority.', points: ['On-page SEO: title tags, meta descriptions, schema', 'Technical SEO: Core Web Vitals, crawlability, sitemaps', 'Keyword research with Ahrefs and SEMrush', 'Content strategy, editorial calendar, and E-E-A-T'] },
+                { name: 'Paid Advertising', desc: 'Performance marketing fundamentals.', points: ['Google Ads: search, display, shopping, YouTube', 'Meta Ads Manager: audiences, creatives, retargeting', 'Campaign KPIs: CTR, CPC, ROAS, and CAC', 'Attribution models: last-click vs data-driven'] }
+            ]},
+            { title: 'Analytics & CRO', topics: [
+                { name: 'Marketing Analytics', desc: 'Measure and optimize performance.', points: ['Google Analytics 4: events, conversions, audiences', 'UTM parameters and campaign attribution', 'A/B testing landing pages and email subject lines', 'Looker Studio dashboards for reporting'] }
+            ]},
+            { title: 'Brand & Growth', topics: [
+                { name: 'Brand Strategy', desc: 'Build lasting brand equity.', points: ['Brand positioning and unique value proposition (UVP)', 'Tone of voice and messaging framework', 'Influencer marketing and strategic partnerships', 'Community building and social media management'] }
+            ]}
+        ]
+    },
+    'business-analyst': {
+        title: 'Business Analyst',
+        modules: [
+            { title: 'Requirements Engineering', topics: [
+                { name: 'Elicitation Techniques', desc: 'Uncover true business needs.', points: ['Stakeholder interviews, workshops, and surveys', 'Use cases, user stories, and acceptance scenarios', 'BPMN process modeling and swimlane diagrams', 'Gap analysis and root cause analysis (5 Whys)'] }
+            ]},
+            { title: 'Analysis & Modeling', topics: [
+                { name: 'Business Process Analysis', desc: 'Understand and improve processes.', points: ['As-is vs to-be process mapping and redesign', 'SWOT, PESTLE, and Porter Five Forces analysis', 'Cost-benefit analysis and ROI calculation', 'Risk register and mitigation strategy development'] },
+                { name: 'Data Analysis', desc: 'Turn data into actionable decisions.', points: ['Excel: VLOOKUP, pivot tables, Power Query, macros', 'SQL queries for business reporting', 'KPI dashboards in Power BI or Tableau', 'Forecasting models and trend analysis'] }
+            ]},
+            { title: 'Agile BA', topics: [
+                { name: 'BA in Agile Teams', desc: 'Contribute effectively in agile environments.', points: ['Writing epics, user stories, and acceptance criteria', 'Backlog refinement and sprint planning participation', 'Product owner collaboration and proxy PO role', 'Definition of done and sprint ceremony facilitation'] }
+            ]}
+        ]
     }
 };
 
@@ -943,13 +1417,17 @@ function resetMockInterview() {
 document.getElementById('user-profile-btn')?.addEventListener('click', showProfileModal);
 
 // ==================== SUPABASE CONFIG ====================
-const SUPABASE_URL = 'https://qzhodtpzajupwgoghmcw.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6aG9kdHB6YWp1cHdnb2dobWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDQ4NzksImV4cCI6MjA5MjAyMDg3OX0.av43zZ-nAZg4FOnHfXNRK_LKL-CAeUZR-ewgdn3VbsI';
+const SUPABASE_URL = 'https://vllflvfnuohxhnqbazct.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsbGZsdmZudW9oeGhucWJhemN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzY5ODAsImV4cCI6MjEwMDQ1Mjk4MH0.BadUiVFwwZ8-3361AA9Da2KoXlxrz4xPzzIjSWSSPpw';
 let supabase;
 try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (window.supabase && typeof window.supabase.createClient === 'function') {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } else {
+        console.warn('Supabase SDK createClient not available, fallback to offline mode.');
+    }
 } catch (e) {
-    console.warn('Supabase SDK not loaded, Skill Connect will work in offline mode.');
+    console.warn('Supabase SDK initialization error, Skill Connect will work in offline mode:', e);
 }
 
 // ==================== AUTH (Email OTP) ====================
@@ -957,13 +1435,20 @@ let authEmail = '';
 
 async function checkAuthState() {
     if (!supabase) {
-        // No Supabase — skip auth, show app directly
-        showApp();
+        // No Supabase client — go directly to auth screen (guest mode available)
+        showAuthScreen();
         return;
     }
 
     try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Race against a 2-second timeout so network lag doesn't block startup
+        const sessionPromise = supabase.auth.getSession();
+        const timeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Supabase timeout')), 2000)
+        );
+        const result = await Promise.race([sessionPromise, timeout]);
+        const session = result?.data?.session;
+
         if (session && session.user) {
             authEmail = session.user.email;
             showApp();
@@ -979,12 +1464,14 @@ async function checkAuthState() {
                 showApp();
                 updateUserDisplay(session.user.email);
             } else if (event === 'SIGNED_OUT') {
+                authEmail = '';
                 showAuthScreen();
             }
         });
     } catch (err) {
         console.error('Auth check error:', err);
-        showApp(); // Fallback to showing app
+        // If Supabase is unreachable or times out, fall back to auth screen (guest option is there)
+        showAuthScreen();
     }
 }
 
@@ -1000,155 +1487,211 @@ function showAuthScreen() {
     document.getElementById('app-wrapper').style.display = 'none';
 }
 
+// ==================== GUEST / OFFLINE MODE ====================
+function continueAsGuest() {
+    const nameInput = document.getElementById('guest-name-input');
+    const guestName = nameInput?.value?.trim() || 'Guest';
+
+    // Don't use Supabase auth — just set a local identity
+    authEmail = `${guestName.toLowerCase().replace(/\s+/g, '.')}@guest.local`;
+
+    // Update sidebar user display
+    const nameEl = document.getElementById('display-user-name');
+    const roleEl = document.getElementById('display-user-role');
+    if (nameEl) nameEl.textContent = guestName;
+    if (roleEl) roleEl.textContent = 'Guest Mode';
+
+    // Pre-fill Skill Connect form
+    const scNameEl = document.getElementById('sc-name');
+    const scEmailEl = document.getElementById('sc-email');
+    if (scNameEl && !scNameEl.value) scNameEl.value = guestName;
+    if (scEmailEl && !scEmailEl.value) scEmailEl.value = authEmail;
+
+    showApp();
+    showToast(`Welcome, ${guestName}! Running in offline mode.`, 'success');
+}
+
 function updateUserDisplay(email) {
     const nameEl = document.getElementById('display-user-name');
     const roleEl = document.getElementById('display-user-role');
     if (nameEl) nameEl.textContent = email.split('@')[0];
     if (roleEl) roleEl.textContent = email;
+
+    // Auto-fill Skill Connect email & name from authenticated user
+    const scEmailInput = document.getElementById('sc-email');
+    const scNameInput = document.getElementById('sc-name');
+    if (scEmailInput && !scEmailInput.value) scEmailInput.value = email;
+    if (scNameInput && !scNameInput.value) scNameInput.value = email.split('@')[0];
 }
 
-async function sendOTP() {
-    const emailInput = document.getElementById('auth-email');
-    const email = emailInput.value.trim();
+function switchAuthTab(tab) {
+    const signinTab = document.getElementById('tab-signin');
+    const signupTab = document.getElementById('tab-signup');
+    const signinForm = document.getElementById('auth-form-signin');
+    const signupForm = document.getElementById('auth-form-signup');
 
-    if (!email) {
-        showToast('Please enter your email address', 'error');
-        return;
+    if (tab === 'signin') {
+        signinTab?.classList.add('active');
+        signupTab?.classList.remove('active');
+        if (signinForm) signinForm.style.display = 'block';
+        if (signupForm) signupForm.style.display = 'none';
+    } else {
+        signupTab?.classList.add('active');
+        signinTab?.classList.remove('active');
+        if (signupForm) signupForm.style.display = 'block';
+        if (signinForm) signinForm.style.display = 'none';
     }
-    if (!email.includes('@')) {
+}
+
+function togglePasswordVisibility(inputId, eyeIconId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+    } else {
+        input.type = 'password';
+    }
+}
+
+async function signInWithPassword() {
+    const emailInput = document.getElementById('auth-email');
+    const passInput = document.getElementById('auth-password');
+    const email = emailInput?.value?.trim();
+    const password = passInput?.value;
+
+    if (!email || !email.includes('@')) {
         showToast('Please enter a valid email address', 'error');
         return;
     }
+    if (!password) {
+        showToast('Please enter your password', 'error');
+        return;
+    }
 
-    authEmail = email;
-    const btn = document.getElementById('auth-send-otp');
+    const btn = document.getElementById('auth-signin-btn');
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Sending...`;
+    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Signing in...`;
 
     try {
-        const { error } = await supabase.auth.signInWithOtp({
-            email: email,
-            options: {
-                shouldCreateUser: true,
-            }
+        if (!supabase) throw new Error('Supabase client not initialized');
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+            email,
+            password
         });
 
         if (error) {
-            showToast('Error: ' + error.message, 'error');
+            showToast('Sign in failed: ' + error.message, 'error');
             btn.disabled = false;
             btn.innerHTML = originalText;
             return;
         }
 
-        // Switch to OTP step
-        document.getElementById('auth-step-email').style.display = 'none';
-        document.getElementById('auth-step-otp').style.display = 'block';
-        document.getElementById('auth-sent-email').textContent = email;
-
-        // Focus first OTP box
-        setTimeout(() => document.getElementById('otp-1').focus(), 100);
-
-        showToast('OTP sent! Check your email inbox', 'success');
+        authEmail = data.user.email;
+        showToast(`Welcome back, ${authEmail.split('@')[0]}! 🎉`, 'success');
+        showApp();
+        updateUserDisplay(authEmail);
 
     } catch (err) {
-        console.error('OTP error:', err);
-        showToast('Network error. Please try again.', 'error');
+        console.error('Sign in error:', err);
+        showToast('Network error or server unavailable', 'error');
     }
 
     btn.disabled = false;
     btn.innerHTML = originalText;
 }
 
-async function verifyOTP() {
-    // Collect all 6 digits
-    const otp = [1,2,3,4,5,6].map(i => document.getElementById(`otp-${i}`).value).join('');
+async function signUpWithPassword() {
+    const nameInput = document.getElementById('signup-name');
+    const emailInput = document.getElementById('signup-email');
+    const passInput = document.getElementById('signup-password');
+    const confirmInput = document.getElementById('signup-confirm');
 
-    if (otp.length !== 6) {
-        showToast('Please enter the complete 6-digit code', 'error');
+    const name = nameInput?.value?.trim();
+    const email = emailInput?.value?.trim();
+    const password = passInput?.value;
+    const confirm = confirmInput?.value;
+
+    if (!name) {
+        showToast('Please enter your name', 'error');
+        return;
+    }
+    if (!email || !email.includes('@')) {
+        showToast('Please enter a valid email address', 'error');
+        return;
+    }
+    if (!password || password.length < 6) {
+        showToast('Password must be at least 6 characters', 'error');
+        return;
+    }
+    if (password !== confirm) {
+        showToast('Passwords do not match', 'error');
         return;
     }
 
-    const btn = document.getElementById('auth-verify-btn');
+    const btn = document.getElementById('auth-signup-btn');
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Verifying...`;
+    btn.innerHTML = `<div class="typing-indicator" style="justify-content:center"><span></span><span></span><span></span></div> Creating account...`;
 
     try {
-        const { data, error } = await supabase.auth.verifyOtp({
-            email: authEmail,
-            token: otp,
-            type: 'email',
+        if (!supabase) throw new Error('Supabase client not initialized');
+
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { full_name: name }
+            }
         });
 
         if (error) {
-            showToast('Invalid OTP: ' + error.message, 'error');
+            showToast('Sign up failed: ' + error.message, 'error');
             btn.disabled = false;
             btn.innerHTML = originalText;
-            // Clear OTP boxes
-            [1,2,3,4,5,6].forEach(i => {
-                const box = document.getElementById(`otp-${i}`);
-                box.value = '';
-                box.classList.remove('filled');
-            });
-            document.getElementById('otp-1').focus();
             return;
         }
 
-        showToast('Welcome to Insignia! 🎉', 'success');
-        // Auth state change listener will handle the rest
+        if (data.session) {
+            authEmail = data.user.email;
+            showToast(`Account created! Welcome, ${name}! 🎉`, 'success');
+            showApp();
+            updateUserDisplay(authEmail);
+        } else {
+            showToast('Account created! Please check your email to confirm registration.', 'info');
+            switchAuthTab('signin');
+        }
 
     } catch (err) {
-        console.error('Verify error:', err);
-        showToast('Network error. Please try again.', 'error');
-        btn.disabled = false;
-        btn.innerHTML = originalText;
+        console.error('Sign up error:', err);
+        showToast('Network error or server unavailable', 'error');
     }
+
+    btn.disabled = false;
+    btn.innerHTML = originalText;
 }
 
-async function resendOTP() {
-    const btn = document.getElementById('auth-resend-btn');
-    btn.disabled = true;
-    btn.textContent = 'Sending...';
+async function sendPasswordReset() {
+    const emailInput = document.getElementById('auth-email');
+    const email = emailInput?.value?.trim();
+
+    if (!email || !email.includes('@')) {
+        showToast('Please enter your email address in the field first', 'error');
+        return;
+    }
 
     try {
-        const { error } = await supabase.auth.signInWithOtp({
-            email: authEmail,
-            options: { shouldCreateUser: true }
-        });
-
+        if (!supabase) throw new Error('Supabase client not initialized');
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
         if (error) {
-            showToast('Error: ' + error.message, 'error');
+            showToast('Reset failed: ' + error.message, 'error');
         } else {
-            showToast('New OTP sent to ' + authEmail, 'success');
+            showToast('Password reset link sent to ' + email, 'success');
         }
     } catch (err) {
-        showToast('Network error', 'error');
+        showToast('Could not send reset link', 'error');
     }
-
-    // Cooldown
-    let cooldown = 30;
-    btn.textContent = `Resend in ${cooldown}s`;
-    const timer = setInterval(() => {
-        cooldown--;
-        btn.textContent = `Resend in ${cooldown}s`;
-        if (cooldown <= 0) {
-            clearInterval(timer);
-            btn.disabled = false;
-            btn.textContent = 'Resend OTP';
-        }
-    }, 1000);
-}
-
-function backToEmail() {
-    document.getElementById('auth-step-email').style.display = 'block';
-    document.getElementById('auth-step-otp').style.display = 'none';
-    // Clear OTP boxes
-    [1,2,3,4,5,6].forEach(i => {
-        const box = document.getElementById(`otp-${i}`);
-        box.value = '';
-        box.classList.remove('filled');
-    });
 }
 
 async function logoutUser() {
@@ -1265,18 +1808,42 @@ function initSkillConnect() {
     setupTagInput('sc-teach-input', 'sc-teach-tags', 'sc-teach-suggestions', 'teach');
     setupTagInput('sc-learn-input', 'sc-learn-tags', 'sc-learn-suggestions', 'learn');
 
+    // Auto-fill from auth if available (Bug 1 & 6 fix)
+    const scEmailInput = document.getElementById('sc-email');
+    const scNameInput = document.getElementById('sc-name');
+    if (scEmailInput && !scEmailInput.value && authEmail) {
+        scEmailInput.value = authEmail;
+    }
+    if (scNameInput && !scNameInput.value && authEmail) {
+        scNameInput.value = authEmail.split('@')[0];
+    }
+
     // Load saved profile from localStorage first (fast)
     if (SCState.profile) {
         SCState.teachSkills = SCState.profile.teach || [];
         SCState.learnSkills = SCState.profile.learn || [];
         document.getElementById('sc-name').value = SCState.profile.name || '';
-        document.getElementById('sc-email').value = SCState.profile.email || '';
+        // Prefer saved email but fall back to authEmail
+        document.getElementById('sc-email').value = SCState.profile.email || authEmail || '';
         renderTags('sc-teach-tags', SCState.teachSkills, 'teach');
         renderTags('sc-learn-tags', SCState.learnSkills, 'learn');
+
+        // Auto-sync profile to Supabase in background if client is ready
+        if (supabase && SCState.profile.email && SCState.profile.name) {
+            supabase.from('skill_profiles').upsert({
+                name: SCState.profile.name,
+                email: SCState.profile.email,
+                teach_skills: SCState.teachSkills,
+                learn_skills: SCState.learnSkills,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'email' }).catch(err => console.warn('Background profile sync warning:', err));
+        }
+
         showMatchesView();
+        return;
     }
 
-    // Show suggestions
+    // Show suggestions for fresh setup
     showSuggestions('sc-teach-suggestions', 'teach');
     showSuggestions('sc-learn-suggestions', 'learn');
 }
@@ -1405,8 +1972,13 @@ async function saveSkillProfile() {
 
         if (error) {
             console.error('Supabase error:', error);
-            showToast('Error saving profile: ' + error.message, 'error');
+            // Bug 9 fix: always remove loading on error path
             btn.classList.remove('loading');
+            showToast('Error saving profile: ' + error.message, 'error');
+            // Still save locally so UI continues working
+            SCState.profile = { name, email, teach: [...SCState.teachSkills], learn: [...SCState.learnSkills] };
+            localStorage.setItem('sc_profile', JSON.stringify(SCState.profile));
+            setTimeout(() => { showMatchesView(); }, 400);
             return;
         }
 
@@ -1419,15 +1991,19 @@ async function saveSkillProfile() {
         };
         localStorage.setItem('sc_profile', JSON.stringify(SCState.profile));
 
-        showToast('Profile saved to database! Finding matches...', 'success');
+        showToast('Profile saved! Finding your matches...', 'success');
 
         btn.classList.remove('loading');
         setTimeout(() => { showMatchesView(); }, 400);
 
     } catch (err) {
         console.error('Save error:', err);
-        showToast('Network error. Please try again.', 'error');
+        // Save locally so feature still works
+        SCState.profile = { name, email, teach: [...SCState.teachSkills], learn: [...SCState.learnSkills] };
+        localStorage.setItem('sc_profile', JSON.stringify(SCState.profile));
+        showToast('Saved locally. Network issue — matches may be limited.', 'info');
         btn.classList.remove('loading');
+        setTimeout(() => { showMatchesView(); }, 400);
     }
 }
 
@@ -1441,8 +2017,15 @@ async function showMatchesView() {
 }
 
 function editSkillProfile() {
-    document.getElementById('sc-setup').style.display = '';
+    // Bug 4 fix: use explicit display value so element is visible
+    document.getElementById('sc-setup').style.display = 'block';
     document.getElementById('sc-matches-section').style.display = 'none';
+
+    // Restore form fields from current state
+    if (SCState.profile) {
+        document.getElementById('sc-name').value = SCState.profile.name || '';
+        document.getElementById('sc-email').value = SCState.profile.email || authEmail || '';
+    }
 
     // Re-render tags and suggestions
     renderTags('sc-teach-tags', SCState.teachSkills, 'teach');
@@ -1494,23 +2077,18 @@ async function computeMatches() {
     </div>`;
 
     if (!supabase) {
-        grid.innerHTML = `<div class="sc-empty">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-            <h3>Database not connected</h3>
-            <p>Supabase SDK could not load. Check your internet connection and refresh.</p>
-        </div>`;
+        // Bug 5 fix: Generate demo matches offline so the feature is usable
+        SCState.matches = generateOfflineMatches(me);
+        const countEl = document.getElementById('sc-match-count');
+        if (countEl) countEl.textContent = SCState.matches.length;
         return;
     }
 
     try {
-        // Fetch all profiles from Supabase except the current user
-        const { data: users, error } = await supabase
+        // Fetch all profiles from Supabase
+        const { data: allUsers, error } = await supabase
             .from('skill_profiles')
-            .select('*')
-            .neq('email', me.email);
+            .select('*');
 
         if (error) {
             console.error('Fetch error:', error);
@@ -1518,15 +2096,16 @@ async function computeMatches() {
             return;
         }
 
-        if (!users || users.length === 0) {
-            grid.innerHTML = `<div class="sc-empty">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-                <h3>No other users yet</h3>
-                <p>Share the platform with others to start matching skills!</p>
-            </div>`;
+        // Filter out current user case-insensitively
+        const users = (allUsers || []).filter(u =>
+            u.email && me.email && u.email.toLowerCase() !== me.email.toLowerCase()
+        );
+
+        if (users.length === 0) {
+            // Fall back to demo matches if no other users registered in DB yet
+            SCState.matches = generateOfflineMatches(me);
+            const countEl = document.getElementById('sc-match-count');
+            if (countEl) countEl.textContent = SCState.matches.length + ' (demo)';
             return;
         }
 
@@ -1544,19 +2123,21 @@ async function computeMatches() {
                 me.teach.find(t => t.toLowerCase() === s.toLowerCase())
             );
 
-            if (canTeachMe.length === 0 && wantsFromMe.length === 0) return;
+            let score = 25; // Base community match score
+            let reason = `${user.name.split(' ')[0]} is a registered member of the Skill Connect network.`;
 
-            const matchScore = (canTeachMe.length + wantsFromMe.length) * 100 /
-                Math.max(1, me.learn.length + me.teach.length);
-            const score = Math.min(99, Math.round(matchScore * 2.5 + 20));
+            if (canTeachMe.length > 0 || wantsFromMe.length > 0) {
+                const matchScore = (canTeachMe.length + wantsFromMe.length) * 100 /
+                    Math.max(1, me.learn.length + me.teach.length);
+                score = Math.min(99, Math.round(matchScore * 2.5 + 25));
 
-            let reason = '';
-            if (canTeachMe.length > 0 && wantsFromMe.length > 0) {
-                reason = `${user.name.split(' ')[0]} can teach you ${canTeachMe.join(', ')} and wants to learn ${wantsFromMe.join(', ')} from you — a perfect mutual exchange!`;
-            } else if (canTeachMe.length > 0) {
-                reason = `${user.name.split(' ')[0]} is proficient in ${canTeachMe.join(', ')} which you want to learn.`;
-            } else {
-                reason = `${user.name.split(' ')[0]} wants to learn ${wantsFromMe.join(', ')} — something you can teach!`;
+                if (canTeachMe.length > 0 && wantsFromMe.length > 0) {
+                    reason = `${user.name.split(' ')[0]} can teach you ${canTeachMe.join(', ')} and wants to learn ${wantsFromMe.join(', ')} from you — a perfect mutual exchange!`;
+                } else if (canTeachMe.length > 0) {
+                    reason = `${user.name.split(' ')[0]} is proficient in ${canTeachMe.join(', ')} which you want to learn.`;
+                } else {
+                    reason = `${user.name.split(' ')[0]} wants to learn ${wantsFromMe.join(', ')} — something you can teach!`;
+                }
             }
 
             SCState.matches.push({
@@ -1582,8 +2163,72 @@ async function computeMatches() {
 
     } catch (err) {
         console.error('Match computation error:', err);
-        showToast('Error finding matches. Please try again.', 'error');
+        showToast('Using demo matches — database error: ' + err.message, 'info');
+        // Bug 5 fix: fall back to offline demo matches on any error
+        SCState.matches = generateOfflineMatches(me);
+        const countEl = document.getElementById('sc-match-count');
+        if (countEl) countEl.textContent = SCState.matches.length + ' (demo)';
     }
+}
+
+// ==================== OFFLINE DEMO MATCHES ====================
+function generateOfflineMatches(me) {
+    const demoUsers = [
+        { name: 'Arjun Mehta', email: 'arjun.mehta@gmail.com', teach: ['Python', 'Machine Learning', 'TensorFlow', 'Pandas'], learn: ['React', 'Node.js', 'TypeScript'] },
+        { name: 'Priya Sharma', email: 'priya.sharma@gmail.com', teach: ['React', 'TypeScript', 'Next.js', 'Figma'], learn: ['Python', 'Data Analysis', 'SQL'] },
+        { name: 'Rohan Gupta', email: 'rohan.gupta@gmail.com', teach: ['Java', 'Spring Boot', 'Microservices', 'Docker'], learn: ['React Native', 'Flutter', 'Kubernetes'] },
+        { name: 'Sneha Patel', email: 'sneha.patel@gmail.com', teach: ['SQL', 'Power BI', 'Excel', 'Data Analysis'], learn: ['Python', 'Machine Learning', 'Tableau'] },
+        { name: 'Vikram Rao', email: 'vikram.rao@gmail.com', teach: ['AWS', 'Docker', 'Kubernetes', 'CI/CD'], learn: ['React', 'GraphQL', 'Flutter'] },
+        { name: 'Isha Jain', email: 'isha.jain@gmail.com', teach: ['UI/UX Design', 'Figma', 'Adobe XD'], learn: ['HTML/CSS', 'JavaScript', 'React'] },
+        { name: 'Dev Kapoor', email: 'dev.kapoor@gmail.com', teach: ['Flutter', 'Kotlin', 'Android', 'Swift'], learn: ['AWS', 'Firebase', 'Node.js'] },
+        { name: 'Anjali Singh', email: 'anjali.singh@gmail.com', teach: ['DSA', 'System Design', 'C++', 'Problem Solving'], learn: ['Machine Learning', 'TensorFlow', 'PyTorch'] },
+    ];
+
+    const myTeach = (me.teach || []).map(s => s.toLowerCase());
+    const myLearn = (me.learn || []).map(s => s.toLowerCase());
+    const matches = [];
+
+    demoUsers.forEach(user => {
+        const userTeach = user.teach;
+        const userLearn = user.learn;
+
+        const canTeachMe = userTeach.filter(s => myLearn.includes(s.toLowerCase()));
+        const wantsFromMe = userLearn.filter(s => myTeach.includes(s.toLowerCase()));
+
+        // Always show some demo matches even if no skill overlap
+        if (canTeachMe.length === 0 && wantsFromMe.length === 0 && matches.length >= 3) return;
+
+        const score = canTeachMe.length === 0 && wantsFromMe.length === 0
+            ? Math.floor(Math.random() * 25 + 20)
+            : Math.min(99, (canTeachMe.length + wantsFromMe.length) * 20 + 35);
+
+        let reason = '';
+        if (canTeachMe.length > 0 && wantsFromMe.length > 0) {
+            reason = `${user.name.split(' ')[0]} can teach you ${canTeachMe.join(', ')} and wants to learn ${wantsFromMe.join(', ')} from you — a perfect skill swap!`;
+        } else if (canTeachMe.length > 0) {
+            reason = `${user.name.split(' ')[0]} is proficient in ${canTeachMe.join(', ')} — exactly what you want to learn.`;
+        } else if (wantsFromMe.length > 0) {
+            reason = `${user.name.split(' ')[0]} wants to learn ${wantsFromMe.join(', ')} — skills you can teach!`;
+        } else {
+            reason = `${user.name.split(' ')[0]} has a complementary tech stack. Great opportunity to expand your network!`;
+        }
+
+        matches.push({
+            name: user.name,
+            email: user.email,
+            teach: userTeach,
+            learn: userLearn,
+            canTeachMe,
+            wantsFromMe,
+            score,
+            reason,
+            matchType: canTeachMe.length > 0 && wantsFromMe.length > 0 ? 'mutual'
+                        : canTeachMe.length > 0 ? 'canTeach' : 'wantsToLearn',
+        });
+    });
+
+    matches.sort((a, b) => b.score - a.score);
+    return matches;
 }
 
 function getAvatarGradient(index) {
